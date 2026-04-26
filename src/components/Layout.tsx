@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Home, Search, ShoppingCart, Package, QrCode, FileText, LogOut, User } from 'lucide-react';
+import { Home, Search, ShoppingCart, Package, QrCode, FileText, LogOut, User, Image as ImageIcon } from 'lucide-react';
 import { authApi, User as UserType } from '../services/supabase';
 
 const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -20,6 +20,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     navigate('/login');
   };
 
+  // تم إضافة "المعرض" هنا ليتناسب مع القائمة
   const navItems = [
     { path: '/', icon: Home, label: 'الرئيسية' },
     { path: '/add', icon: QrCode, label: 'التكويد' },
@@ -27,6 +28,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     { path: '/invoices', icon: FileText, label: 'الفواتير' },
     { path: '/search', icon: Search, label: 'البحث' },
     { path: '/items', icon: Package, label: 'المخزن' },
+    { path: '/gallery', icon: ImageIcon, label: 'المعرض' }, // الزر الجديد
   ];
 
   return (
@@ -83,7 +85,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
           </div>
 
           {/* Desktop Navigation */}
-          <nav className="hidden md:flex gap-1 pb-3">
+          <nav className="hidden md:flex gap-1 pb-3 overflow-x-auto">
             {navItems.map((item) => {
               const Icon = item.icon;
               const isActive = location.pathname === item.path;
@@ -91,7 +93,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                 <Link
                   key={item.path}
                   to={item.path}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-200 ${
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-200 whitespace-nowrap ${
                     isActive
                       ? 'bg-gray-900 text-yellow-400 shadow-lg'
                       : 'text-gray-900 hover:bg-yellow-700'
@@ -121,7 +123,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                 }`}
               >
                 <Icon className="w-6 h-6" />
-                <span className="text-xs mt-1">{item.label}</span>
+                <span className="text-[10px] mt-1">{item.label}</span>
               </Link>
             );
           })}
