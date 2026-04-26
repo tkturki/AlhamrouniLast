@@ -1,0 +1,321 @@
+from flask import Flask, render_template_string, request, redirect, url_for, jsonify
+from flask_sqlalchemy import SQLAlchemy
+from datetime import datetime
+import os
+import qrcode
+
+app = Flask(__name__)
+
+# إعداد قاعدة البيانات
+basedir = os.path.abspath(os.path.dirname(__file__))
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'alhumroni.db')
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+db = SQLAlchemy(app)
+
+# النموذج مع حقل مسار QR
+class JewelryItem(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    item_code = db.Column(db.String(100), unique=True)
+    item_type = db.Column(db.String(50))
+    karat = db.Column(db.String(20))
+    origin = db.Column(db.String(50))
+    category = db.Column(db.String(50))
+    status = db.Column(db.String(50))
+    model_name = db.Column(db.String(100))
+    weight = db.Column(db.Float)
+    price = db.Column(db.Float)
+    stock_qty = db.Column(db.Integer)
+    created_at = db.Column(db.DateTime, default=datetime.now)
+    qr_path = db.Column(db.String(200))  # مسار QR
+
+with app.app_context():
+    db.create_all()
+
+# التنسيقات
+COMMON_STYLE = """
+<style>
+    body { font-family: 'Segoe UI', sans-serif; background: #121212; color: #e0e0e0; direction: rtl; margin: 0; }
+    .nav { background: #1e1e1e; padding: 15px; border-bottom: 2px solid #d4af37; text-align: center; }
+    .nav a { color: #d4af37; text-decoration: none; margin: 0 20px; font-weight: bold; font-size: 1.1em; }
+    .container { max-width: 1100px; margin: 30px auto; background: #1e1e1e; padding: 30px; border-radius: 20px; border: 1px solid #333; }
+    h2 { color: #d4af37; border-bottom: 2px solid #d4af37; padding-bottom: 10px; }
+    .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; }
+    input, select { background: #252525; color: #d4af37; border: 1px solid #444; padding: 12px; border-radius: 8px; width: 100%; box-sizing: border-box; }
+    .btn { background: #d4af37; color: #000; border: none; padding: 15px 30px; border-radius: 10px; cursor: pointer; font-weight: bold; font-size: 1.1em; width: 100%; margin-top: 20px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 30px; }
+    th, td { border: 1px solid #333; padding: 12px; text-align: center; }
+    th { background: #d4af37; color: #000; }
+    .print-only { display: none; }
+    @media print {
+        .no-print { display: none !important; }
+        .print-only { display: block !important; position: absolute; top:0; left:0; width: 100%; color: black; background: white; }
+    }
+</style>
+"""
+
+@app.route('/')
+def dashboard():
+    return render_template_string(COMMON_STYLE + """
+    <div style="height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center;">
+        <h1 style="color: #d4af37; font-size: 4em; margin-bottom: 40px;">مجوهرات الحمروني</h1>
+        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; width: 600px;">
+            <a href="/add_page" style="background:#1e1e1e; color:#d4af37; padding:40px; border:2px solid #d4af37; border-radius:20px; text-decoration:none; text-align:center; font-size:1.5em; font-weight:bold;">🏷️ التكويد</a>
+            <a href="/search_page" style="background:#1e1e1e; color:#d4af37; padding:40px; border:2px solid #d4af37; border-radius:20px; text-decoration:none; text-align:center; font-size:1.5em; font-weight:bold;">🔍 البحث</a>
+            <a href="/sales_page" style="background:#1e1e1e; color:#d4af37; padding:40px; border:2px solid #d4af37; border-radius:20px; text-decoration:none; text-align:center; font-size:1.5em; font-weight:bold;">💰 المبيعات</a>
+            <a href="/all_items" style="background:#1e1e1e; color:#d4af37; padding:40px; border:2px solid #d4af37; border-radius:20px; text-decoration:none; text-align:center; font-size:1.5em; font-weight:bold;">📋 عرض جميع القطع</a>
+            <!-- إضافة مسار جديد هنا -->
+            <a href="/external_sales" style="background:#1e1e1e; color:#d4af37; padding:40px; border:2px solid #d4af37; border-radius:20px; text-decoration:none; text-align:center; font-size:1.5em; font-weight:bold;">🚀 صفحة المبيعات الخارجية</a>
+        </div>
+    </div>
+    """)
+
+@app.route('/add_page')
+def add_page():
+    items = JewelryItem.query.order_by(JewelryItem.id.desc()).all()
+    return render_template_string(COMMON_STYLE + """
+    <div class="nav no-print"><a href="/">🏠 الرئيسية</a><a href="/search_page">🔍 البحث</a><a href="/sales_page">💰 المبيعات</a><a href="/all_items">📋 عرض جميع القطع</a></div>
+    <div class="container no-print">
+        <h2>🏷️ تكويد قطعة جديدة</h2>
+        <form method="POST" action="/add">
+            <div class="form-grid">
+                <div><label>النوع:</label><select name="item_type"><option value="G">ذهب</option><option value="S">فضة</option></select></div>
+                <div><label>العيار:</label><select name="karat"><option value="21">21</option><option value="18">18</option><option value="24">24</option></select></div>
+                <div><label>المنشأ:</label><select name="origin"><option value="L">ليبي</option><option value="T">تركي</option><option value="I">إيطالي</option></select></div>
+                <div><label>الصنف:</label><select name="category"><option value="R">خاتم</option><option value="BR">سوار</option><option value="NL">قلادة</option></select></div>
+                <div><label>الحالة:</label><select name="status"><option value="جديد">جديد</option><option value="تكسير">تكسير</option></select></div>
+                <div><label>الموديل:</label><input type="text" name="model_name" required></div>
+                <div><label>الوزن:</label><input type="number" step="0.001" name="weight" required></div>
+                <div><label>السعر:</label><input type="number" step="0.01" name="price" required></div>
+                <div><label>العدد:</label><input type="number" name="stock_qty" value="1" required></div>
+            </div>
+            <button class="btn">حفظ القطعة ✅</button>
+        </form>
+        <table>
+            <thead><tr><th>الكود</th><th>الموديل</th><th>الوزن</th><th>السعر</th><th>الكمية</th></tr></thead>
+            <tbody>
+                {% for i in items %}
+                <tr><td>{{i.item_code}}</td><td>{{i.model_name}}</td><td>{{i.weight}}</td><td>{{i.price}}</td><td>{{i.stock_qty}}</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    """, items=items)
+
+@app.route('/search_page')
+def search_page():
+    items = JewelryItem.query.all()
+    return render_template_string(COMMON_STYLE + """
+    <div class="nav"><a href="/">🏠 الرئيسية</a><a href="/add_page">🏷️ التكويد</a></div>
+    <div class="container">
+        <h2>🔍 البحث والجرد الذكي</h2>
+        <input type="text" id="si" onkeyup="srch()" placeholder="ابحث بالكود أو الموديل..." style="margin-bottom:20px;">
+        <table id="tbl">
+            <thead><tr><th>الكود</th><th>الصنف</th><th>الموديل</th><th>الوزن</th><th>الكمية</th></tr></thead>
+            <tbody>
+                {% for i in items %}
+                <tr><td>{{i.item_code}}</td><td>{{i.category}}</td><td>{{i.model_name}}</td><td>{{i.weight}}</td><td>{{i.stock_qty}}</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <script>
+    function srch() {
+        let val = document.getElementById('si').value.toUpperCase();
+        let tr = document.getElementById('tbl').getElementsByTagName('tr');
+        for (let i = 1; i < tr.length; i++) {
+            tr[i].style.display = tr[i].innerText.toUpperCase().includes(val) ? "" : "none";
+        }
+    }
+    </script>
+    """, items=items)
+
+@app.route('/sales_page')
+def sales_page():
+    return render_template_string(COMMON_STYLE + """
+    <div class="nav no-print"><a href="/">🏠 الرئيسية</a><a href="/add_page">🏷️ التكويد</a></div>
+    <div class="container no-print">
+        <h2>💰 شاشة المبيعات</h2>
+        <input type="text" id="scanner" placeholder="اسحب الكود (QR) هنا..." autofocus>
+        <div style="margin-top:20px;">
+            <h3>المنتجات المضافة:</h3>
+            <table id="cart_table" style="width:100%; border:1px solid #444; border-collapse: collapse;">
+                <thead>
+                    <tr style="background:#d4af37; color:#000;">
+                        <th>الكود</th>
+                        <th>الموديل</th>
+                        <th>الوزن</th>
+                        <th>السعر</th>
+                        <th>الكمية</th>
+                        <th>المجموع</th>
+                        <th>حذف</th>
+                    </tr>
+                </thead>
+                <tbody id="cart_body"></tbody>
+            </table>
+            <h2 style="color:#4caf50;">الإجمالي: <span id="total_amount">0</span> د.ل</h2>
+            <button class="btn" onclick="printInvoice()">طباعة الفاتورة</button>
+        </div>
+        <!-- صفحة الفاتورة -->
+        <div id="invoice" style="display:none; direction:rtl; font-family:'Segoe UI',sans-serif; margin-top:20px;">
+            <h1 style="text-align:center;">مجوهرات الحمروني</h1>
+            <p>التاريخ: <span id="p_date"></span></p>
+            <p>الزبون: <input type="text" id="cust_name" placeholder="اسم الزبون"></p>
+            <hr>
+            <div id="invoice_details"></div>
+            <hr>
+            <h3>الإجمالي: <span id="invoice_total"></span> د.ل</h3>
+            <p style="text-align:center;">البائع: خالد تركي (001)</p>
+        </div>
+    </div>
+    <script>
+        let cartItems = [];
+        let total = 0;
+
+        document.getElementById('scanner').addEventListener('change', function() {
+            fetch('/get_item/' + this.value).then(r => r.json()).then(data => {
+                if(data.success) {
+                    // ابحث إذا كانت القطعة موجودة بالفعل في القائمة
+                    let existing = cartItems.find(c => c.code === data.code);
+                    if(existing){
+                        existing.qty += 1;
+                        existing.total = existing.qty * existing.price;
+                    } else {
+                        cartItems.push({code: data.code, model: data.model, weight: data.weight, price: data.price, qty:1, total: data.price});
+                    }
+                    updateCart();
+                } else {
+                    alert('غير موجودة أو نفذت الكمية!');
+                }
+                document.getElementById('scanner').value = '';
+            });
+        });
+
+        function updateCart() {
+            let tbody = document.getElementById('cart_body');
+            tbody.innerHTML = '';
+            total = 0;
+            cartItems.forEach((item, index) => {
+                total += item.total;
+                tbody.innerHTML += `
+                <tr>
+                    <td>${item.code}</td>
+                    <td>${item.model}</td>
+                    <td>${item.weight}</td>
+                    <td>${item.price.toFixed(2)}</td>
+                    <td>${item.qty}</td>
+                    <td>${item.total.toFixed(2)}</td>
+                    <td><button onclick="removeItem(${index})">حذف</button></td>
+                </tr>`;
+            });
+            document.getElementById('total_amount').innerText = total.toFixed(2);
+        }
+
+        function removeItem(index) {
+            cartItems.splice(index,1);
+            updateCart();
+        }
+
+        function printInvoice() {
+            if(cartItems.length === 0) { alert('لا توجد منتجات للطباعة'); return; }
+            document.getElementById('invoice').style.display='block';
+            document.getElementById('p_date').innerText = new Date().toLocaleString();
+            document.getElementById('invoice_total').innerText = total.toFixed(2);
+            let detailsDiv = document.getElementById('invoice_details');
+            detailsDiv.innerHTML = '';
+            cartItems.forEach(item => {
+                detailsDiv.innerHTML += `
+                <p><strong>${item.model}</strong> - الكود: ${item.code}<br>
+                الوزن: ${item.weight} ، السعر: ${item.price.toFixed(2)} د.ل<br>
+                الكمية: ${item.qty} ، المجموع: ${item.total.toFixed(2)} د.ل</p><hr>`;
+            });
+            // طباعة
+            window.print();
+            // بعد الطباعة، يمكن إعادة تحميل الصفحة أو تفريغ البيانات
+            setTimeout(() => {
+                location.reload();
+            }, 1000);
+        }
+    </script>
+    """)
+
+# صفحة عرض كل القطع مع QR للطباعة
+@app.route('/all_items')
+def all_items():
+    items = JewelryItem.query.all()
+    return render_template_string(COMMON_STYLE + """
+    <div class="nav no-print"><a href="/">🏠 الرئيسية</a></div>
+    <div class="container">
+        <h2>عرض جميع القطع مع QR للطباعة</h2>
+        <button onclick="window.print()">طباعة</button>
+        <div style="margin-top:20px;">
+            {% for item in items %}
+            <div style="margin-bottom:30px; border:1px solid #444; padding:10px; display:inline-block; text-align:center;">
+                <h4>{{ item.model_name }}</h4>
+                <img src="{{ url_for('static', filename='qrcodes/' + item.item_code + '.png') }}" style="width:200px; height:200px;"><br>
+                <span>{{ item.item_code }}</span>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    """, items=items)
+
+# إضافة قطعة جديدة مع توليد QR
+@app.route('/add', methods=['POST'])
+def add():
+    prefix = f"{request.form['karat']}{request.form['item_type']}{request.form['origin']}{request.form['category']}"
+    last = JewelryItem.query.filter(JewelryItem.item_code.like(f"{prefix}-%")).order_by(JewelryItem.id.desc()).first()
+    num = (int(last.item_code.split('-')[-1]) + 1) if last else 1001
+    
+    item_code = f"{prefix}-{num}"
+
+    # توليد مسار QR
+    qr_data = item_code
+    qr_img = qrcode.make(qr_data)
+    qr_dir = os.path.join(basedir, 'static', 'qrcodes')
+    os.makedirs(qr_dir, exist_ok=True)
+    qr_path = os.path.join(qr_dir, f"{item_code}.png")
+    qr_img.save(qr_path)
+
+    # حفظ مسار QR في قاعدة البيانات
+    item = JewelryItem(
+        item_code=item_code,
+        item_type=request.form['item_type'],
+        karat=request.form['karat'],
+        origin=request.form['origin'],
+        category=request.form['category'],
+        status=request.form['status'],
+        model_name=request.form['model_name'],
+        weight=float(request.form['weight']),
+        price=float(request.form['price']),
+        stock_qty=int(request.form['stock_qty']),
+        qr_path=qr_path
+    )
+    db.session.add(item)
+    db.session.commit()
+    return redirect(url_for('add_page'))
+
+# استرجاع بيانات العنصر بالـ code
+@app.route('/get_item/<code>')
+def get_item(code):
+    i = JewelryItem.query.filter_by(item_code=code).first()
+    if i and i.stock_qty > 0:
+        return jsonify({"success":True, "code":i.item_code, "model":i.model_name, "weight":i.weight, "price":i.price})
+    return jsonify({"success":False})
+
+# تأكيد البيع وتحديث المخزون
+@app.route('/confirm_sale', methods=['POST'])
+def confirm():
+    data = request.get_json()
+    i = JewelryItem.query.filter_by(item_code=data['code']).first()
+    if i:
+        i.stock_qty -= 1
+        db.session.commit()
+    return jsonify({"success":True})
+
+# مسار جديد لتوجيه المستخدم إلى صفحة المبيعات الخارجية
+@app.route('/external_sales')
+def external_sales():
+    return redirect('https://kturkim.pythonanywhere.com/static/myhtml/sales_page.html')
+
+if __name__ == '__main__':
+    app.run(debug=True)
