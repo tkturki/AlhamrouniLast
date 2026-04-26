@@ -8,16 +8,16 @@ import SearchPage from './pages/SearchPage';
 import ItemsPage from './pages/ItemsPage';
 import InvoicesPage from './pages/InvoicesPage';
 import LoginPage from './pages/LoginPage';
-import GalleryPage from './pages/GalleryPage'; // استيراد الصفحة الجديدة
+import GalleryPage from './pages/GalleryPage'; 
 
 function App() {
   return (
     <BrowserRouter>
       <Routes>
-        {/* صفحة تسجيل الدخول بدون Layout */}
+        {/* إعادة صفحة تسجيل الدخول التي اختفت */}
         <Route path="/login" element={<LoginPage />} />
 
-        {/* باقي الصفحات مع Layout */}
+        {/* المسارات الأساسية للنظام مع واجهة الـ Layout */}
         <Route path="/" element={<Layout><HomePage /></Layout>} />
         <Route path="/add" element={<Layout><AddItemPage /></Layout>} />
         <Route path="/sales" element={<Layout><SalesPage /></Layout>} />
@@ -25,7 +25,7 @@ function App() {
         <Route path="/search" element={<Layout><SearchPage /></Layout>} />
         <Route path="/items" element={<Layout><ItemsPage /></Layout>} />
         <Route path="/invoices" element={<Layout><InvoicesPage /></Layout>} />
-        <Route path="/gallery" element={<Layout><GalleryPage /></Layout>} /> {/* إضافة مسار المعرض */}
+        <Route path="/gallery" element={<Layout><GalleryPage /></Layout>} /> 
       </Routes>
     </BrowserRouter>
   );
