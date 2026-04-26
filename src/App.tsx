@@ -8,6 +8,7 @@ import SearchPage from './pages/SearchPage';
 import ItemsPage from './pages/ItemsPage';
 import InvoicesPage from './pages/InvoicesPage';
 import LoginPage from './pages/LoginPage';
+import GalleryPage from './pages/GalleryPage'; // استيراد الصفحة الجديدة
 
 function App() {
   return (
@@ -24,6 +25,7 @@ function App() {
         <Route path="/search" element={<Layout><SearchPage /></Layout>} />
         <Route path="/items" element={<Layout><ItemsPage /></Layout>} />
         <Route path="/invoices" element={<Layout><InvoicesPage /></Layout>} />
+        <Route path="/gallery" element={<Layout><GalleryPage /></Layout>} /> {/* إضافة مسار المعرض */}
       </Routes>
     </BrowserRouter>
   );
