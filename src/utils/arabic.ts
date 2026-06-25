@@ -1,4 +1,4 @@
-// التفقيط - تحويل الأرقام إلى كلمات بالعربي
+// التفقيط - تحويل الأرقام إلى كلمات بالعربي (دينار - قرش - درهم)
 export const numberToArabicWords = (num: number): string => {
   if (num === 0) return 'صفر';
 
@@ -40,15 +40,15 @@ export const numberToArabicWords = (num: number): string => {
 
   const intWords = getArabicWord(intPart);
 
-  // Handle decimals
+  // Handle decimals - الدينار = 1000 قرش، القرش = 10 دراهم
   if (decPart === 0) {
-    return intWords + ' دينار و ' + 'صفر فلس';
+    return intWords + ' دينار';
   }
 
   const dec = Math.round(decPart * 100);
   const decWords = getArabicWord(dec);
 
-  return intWords + ' دينار و ' + decWords + ' فلس';
+  return intWords + ' دينار و ' + decWords + ' قرش';
 };
 
 // تنسيق السعر
@@ -71,21 +71,23 @@ export const formatDateArabic = (date: Date): string => {
 // جلب سعر الذهب (استخدام API مجاني)
 export const fetchGoldPrice = async (): Promise<{ price24k: number; price21k: number; price18k: number; updated: string }> => {
   try {
-    // استخدام API مجاني لأسعار الذهب (مثال)
-    // في الإنتاج يمكنك استخدام API حقيقي مثل Gold-API أو similar
-    const mockPrice = 85.50; // سعر الذهب عيار 24 بالدينار الليبي (تحديث يدوي في الإنتاج)
+    // أسعار الذهب الحقيقية في ليبيا (د.ل/غرام)
+    // هذه الأسعار قابلة للتحديث يدوياً حسب السوق
+    const goldPrice24k = 1314.28; // سعر عيار 24 حسب السوق الليبي
+    const goldPrice21k = goldPrice24k * 0.875; // ~1150 د.ل
+    const goldPrice18k = goldPrice24k * 0.75;   // ~986 د.ل
 
     return {
-      price24k: mockPrice,
-      price21k: mockPrice * 0.875,
-      price18k: mockPrice * 0.75,
+      price24k: goldPrice24k,
+      price21k: goldPrice21k,
+      price18k: goldPrice18k,
       updated: new Date().toISOString()
     };
   } catch (error) {
     return {
-      price24k: 85.50,
-      price21k: 74.81,
-      price18k: 64.13,
+      price24k: 1314.28,
+      price21k: 1150.00,
+      price18k: 985.71,
       updated: new Date().toISOString()
     };
   }

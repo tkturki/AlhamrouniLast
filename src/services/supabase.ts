@@ -12,42 +12,128 @@ export interface JewelryItem {
   item_type: string;
   karat: string;
   origin: string;
+  gold_category?: string;  // arabic, foreign, silver
+  gold_item?: string;     // قلادة، خاتم، etc.
+  metal_type?: string;    // ذهب ابيض، اصفر، etc.
   category: string;
   status: string;
   model_name: string;
   weight: number;
-  price: number;
+  price: number;           // السعر الأساسي
+  purchase_price?: number;  // سعر الشراء
+  sale_price?: number;      // سعر البيع
+  price_per_gram?: number; // سعر الجرام
   stock_qty: number;
   image_url?: string;
   created_at?: string;
 }
 
-// User types
+// Permissions System
+export interface UserPermissions {
+  canCreateInvoice: boolean;    // إصدار فاتورة
+  canPrintInventory: boolean;  // طباعة المخزون
+  canAddItems: boolean;       // إضافة القطع
+  canEditItems: boolean;       // تعديل البيانات
+  canDeleteItems: boolean;    // حذف
+  canManageUsers: boolean;      // إدارة المستخدمين
+  canViewReports: boolean;     // عرض التقارير
+  canAdjustPrices: boolean;    // تعديل الأسعار
+}
+
+// User types with full permissions
 export interface User {
   id: string;
   email: string;
   name: string;
   role: 'admin' | 'seller';
   seller_code: string;
+  isActive: boolean;           // حساب مفعل/موقوف
+  permissions: UserPermissions;
+  created_at?: string;
+  last_login?: string;
 }
 
-// Auth API
+// Activity Log
+export interface ActivityLog {
+  id: string;
+  user_id: string;
+  user_name: string;
+  action: string;
+  description: string;
+  details?: any;
+  timestamp: string;
+  ip_address?: string;
+}
+
+// Notification System
+export interface SystemNotification {
+  id: string;
+  type: 'success' | 'error' | 'warning' | 'info';
+  title: string;
+  message: string;
+  timestamp: string;
+  read: boolean;
+}
+
+// Default Permissions
+const defaultSellerPermissions: UserPermissions = {
+  canCreateInvoice: true,
+  canPrintInventory: false,
+  canAddItems: true,
+  canEditItems: true,
+  canDeleteItems: false,
+  canManageUsers: false,
+  canViewReports: true,
+  canAdjustPrices: false,
+};
+
+const defaultAdminPermissions: UserPermissions = {
+  canCreateInvoice: true,
+  canPrintInventory: true,
+  canAddItems: true,
+  canEditItems: true,
+  canDeleteItems: true,
+  canManageUsers: true,
+  canViewReports: true,
+  canAdjustPrices: true,
+};
+
+// Auth API with enhanced features
 export const authApi = {
   login: async (email: string, password: string): Promise<User> => {
-    // محاكاة تسجيل الدخول - في الإنتاج يستخدم Supabase Auth
     const users = getUsers();
     const user = users.find(u => u.email === email && u.password === password);
 
     if (!user) {
+      // تسجيل محاولة دخول فاشلة
+      logActivity('LOGIN_FAILED', `محاولة دخول فاشلة لـ: ${email}`);
       throw new Error('البريد أو كلمة المرور غير صحيحة');
     }
 
+    // التحقق من حالة الحساب
+    if (!user.isActive) {
+      logActivity('LOGIN_BLOCKED', `محاولة دخول من مستخدم موقوف: ${user.name}`);
+      throw new Error('تم توقيف حسابك. يرجى التواصل مع الإدارة.');
+    }
+
     const { password: _, ...userWithoutPassword } = user;
+
+    // تحديث آخر تسجيل دخول
+    user.last_login = new Date().toISOString();
+    saveUsers(users);
+
+    // تسجيل الدخول الناجح
+    logActivity('LOGIN_SUCCESS', `تسجيل دخول ناجح: ${user.name}`);
+
     localStorage.setItem('current_user', JSON.stringify(userWithoutPassword));
     return userWithoutPassword;
   },
 
   logout: () => {
+    const currentUser = authApi.getCurrentUser();
+    if (currentUser) {
+      logActivity('LOGOUT', `تسجيل خروج: ${currentUser.name}`);
+    }
     localStorage.removeItem('current_user');
   },
 
@@ -59,6 +145,54 @@ export const authApi = {
   isAuthenticated: (): boolean => {
     return authApi.getCurrentUser() !== null;
   },
+
+  // التحقق من صلاحية معينة
+  hasPermission: (permission: keyof UserPermissions): boolean => {
+    const user = authApi.getCurrentUser();
+    if (!user) return false;
+    if (user.role === 'admin') return true; // الأدمن له كل الصلاحيات
+    return user.permissions?.[permission] ?? false;
+  },
+
+  // تفعيل/إيقاف المستخدم
+  toggleUserStatus: async (userId: string, isActive: boolean): Promise<boolean> => {
+    const users = getUsers();
+    const userIndex = users.findIndex(u => u.id === userId);
+
+    if (userIndex === -1) return false;
+
+    users[userIndex].isActive = isActive;
+    saveUsers(users);
+
+    logActivity(
+      isActive ? 'USER_ACTIVATED' : 'USER_DEACTIVATED',
+      `${isActive ? 'تفعيل' : 'توقيف'} حساب: ${users[userIndex].name}`
+    );
+
+    return true;
+  },
+
+  // تحديث صلاحيات المستخدم
+  updateUserPermissions: async (userId: string, permissions: Partial<UserPermissions>): Promise<boolean> => {
+    const users = getUsers();
+    const userIndex = users.findIndex(u => u.id === userId);
+
+    if (userIndex === -1) return false;
+
+    users[userIndex].permissions = {
+      ...users[userIndex].permissions,
+      ...permissions,
+    };
+    saveUsers(users);
+
+    logActivity(
+      'PERMISSIONS_UPDATED',
+      `تحديث صلاحيات: ${users[userIndex].name}`,
+      permissions
+    );
+
+    return true;
+  },
 };
 
 // إدارة المستخدمين
@@ -66,13 +200,146 @@ const getUsers = (): (User & { password: string })[] => {
   const data = localStorage.getItem('users');
   if (data) return JSON.parse(data);
 
-  // إنشاء مستخدم افتراضي
-  const defaultUsers = [
-    { id: '1', email: 'admin@alhumroni.com', password: 'admin123', name: 'مدير النظام', role: 'admin' as const, seller_code: 'ADMIN' },
-    { id: '2', email: 'seller@alhumroni.com', password: 'seller123', name: 'خالد تركي', role: 'seller' as const, seller_code: '001' },
+  // إنشاء المستخدمين الافتراضيين
+  const defaultUsers: (User & { password: string })[] = [
+    {
+      id: '1',
+      email: 'admin',
+      password: 'admin123',
+      name: 'مدير النظام',
+      role: 'admin',
+      seller_code: 'ADMIN',
+      isActive: true,
+      permissions: defaultAdminPermissions,
+      created_at: new Date().toISOString(),
+      last_login: undefined,
+    },
+    {
+      id: '2',
+      email: 'User1',
+      password: 'User456',
+      name: 'مستخدم 1',
+      role: 'seller',
+      seller_code: 'U001',
+      isActive: true,
+      permissions: defaultSellerPermissions,
+      created_at: new Date().toISOString(),
+      last_login: undefined,
+    },
   ];
   localStorage.setItem('users', JSON.stringify(defaultUsers));
   return defaultUsers;
+};
+
+const saveUsers = (usersList: (User & { password: string })[]) => {
+  localStorage.setItem('users', JSON.stringify(usersList));
+};
+
+// Activity Log Functions
+export const logActivity = (
+  action: string,
+  description: string,
+  details?: any
+): void => {
+  const logs = getActivityLogs();
+  const currentUser = authApi.getCurrentUser();
+
+  const newLog: ActivityLog = {
+    id: Date.now().toString(),
+    user_id: currentUser?.id || 'system',
+    user_name: currentUser?.name || 'النظام',
+    action,
+    description,
+    details,
+    timestamp: new Date().toISOString(),
+  };
+
+  logs.unshift(newLog);
+  // الاحتفاظ بآخر 500 سجل
+  localStorage.setItem('activity_logs', JSON.stringify(logs.slice(0, 500)));
+};
+
+export const getActivityLogs = (limit?: number): ActivityLog[] => {
+  const data = localStorage.getItem('activity_logs');
+  const logs = data ? JSON.parse(data) : [];
+  return limit ? logs.slice(0, limit) : logs;
+};
+
+export const clearActivityLogs = (): void => {
+  localStorage.removeItem('activity_logs');
+  logActivity('LOGS_CLEARED', 'تم مسح سجل الأحداث');
+};
+
+export const getUsersList = (): (User & { password: string })[] => {
+  return getUsers();
+};
+
+// Get notifications helper
+const getNotificationsList = (): SystemNotification[] => {
+  const data = localStorage.getItem('notifications');
+  return data ? JSON.parse(data) : [];
+};
+
+// Notification System
+export const notificationSystem = {
+  show: (notification: Omit<SystemNotification, 'id' | 'timestamp' | 'read'>) => {
+    const notifications = getNotificationsList();
+    const newNotification: SystemNotification = {
+      ...notification,
+      id: Date.now().toString(),
+      timestamp: new Date().toISOString(),
+      read: false,
+    };
+    notifications.unshift(newNotification);
+    localStorage.setItem('notifications', JSON.stringify(notifications.slice(0, 100)));
+
+    // Dispatch custom event for real-time updates
+    window.dispatchEvent(new CustomEvent('notification_added', { detail: newNotification }));
+
+    return newNotification;
+  },
+
+  success: (title: string, message: string) => {
+    return notificationSystem.show({ type: 'success', title, message });
+  },
+
+  error: (title: string, message: string) => {
+    return notificationSystem.show({ type: 'error', title, message });
+  },
+
+  warning: (title: string, message: string) => {
+    return notificationSystem.show({ type: 'warning', title, message });
+  },
+
+  info: (title: string, message: string) => {
+    return notificationSystem.show({ type: 'info', title, message });
+  },
+
+  getAll: (): SystemNotification[] => {
+    return getNotificationsList();
+  },
+
+  markAsRead: (id: string) => {
+    const notifications = getNotificationsList();
+    const index = notifications.findIndex(n => n.id === id);
+    if (index !== -1) {
+      notifications[index].read = true;
+      localStorage.setItem('notifications', JSON.stringify(notifications));
+    }
+  },
+
+  markAllAsRead: () => {
+    const notifications = getNotificationsList().map(n => ({ ...n, read: true }));
+    localStorage.setItem('notifications', JSON.stringify(notifications));
+  },
+
+  clear: () => {
+    localStorage.removeItem('notifications');
+  },
+
+  getUnreadCount: (): number => {
+    return notificationSystem.getAll().filter(n => !n.read).length;
+  },
 };
 
 export interface CartItem extends JewelryItem {
@@ -138,12 +405,23 @@ export const jewelryApi = {
         model_name: item.model_name,
         weight: item.weight,
         price: item.price,
+        price_per_gram: item.price_per_gram || (item.weight > 0 ? item.price / item.weight : 0),
         stock_qty: item.stock_qty || 1,
       }])
       .select()
       .single();
 
     if (error) throw error;
+
+    // تسجيل الحدث
+    logActivity('ITEM_ADDED', `إضافة قطعة جديدة: ${item.model_name}`, { item_code });
+    notificationSystem.success('تمت الإضافة', `تمت إضافة القطعة ${item_code} بنجاح`);
+
+    // تنبيه عند المخزون المنخفض
+    if ((item.stock_qty || 1) <= 5) {
+      notificationSystem.warning('مخزون منخفض', `القطعة ${item_code} المخزون: ${item.stock_qty || 1}`);
+    }
+
     return data;
   },
 
@@ -161,49 +439,83 @@ export const jewelryApi = {
 
   // تحديث المخزون بعد البيع
   updateStock: async (code: string, quantity: number): Promise<boolean> => {
-    // جلب القطعة الحالية
-    const { data: item } = await supabase
-      .from('jewelry_items')
-      .select('stock_qty')
-      .eq('item_code', code)
-      .single();
+    try {
+      // Try Supabase first
+      const { data: item } = await supabase
+        .from('jewelry_items')
+        .select('stock_qty')
+        .eq('item_code', code)
+        .single();
 
-    if (!item) return false;
+      if (item) {
+        const newQty = item.stock_qty - quantity;
+        await supabase
+          .from('jewelry_items')
+          .update({ stock_qty: newQty })
+          .eq('item_code', code);
 
-    const newQty = item.stock_qty - quantity;
+        // تنبيه عند المخزون المنخفض
+        if (newQty <= 1 && newQty > 0) {
+          notificationSystem.warning('مخزون منخفض جداً', `القطعة ${code} المخزون: ${newQty}`);
+        } else if (newQty === 0) {
+          notificationSystem.error('نفد المخزون', `القطعة ${code} نفدت من المخزون`);
+        }
+        return true;
+      }
+    } catch (e) {
+      console.log('Supabase not available, using local storage');
+    }
 
-    const { error } = await supabase
-      .from('jewelry_items')
-      .update({ stock_qty: newQty })
-      .eq('item_code', code);
+    // Fallback to local storage
+    const itemsData = localStorage.getItem('jewelry_items');
+    if (itemsData) {
+      const items = JSON.parse(itemsData);
+      const itemIndex = items.findIndex((i: any) => i.item_code === code);
+      if (itemIndex !== -1) {
+        const newQty = items[itemIndex].stock_qty - quantity;
+        items[itemIndex].stock_qty = newQty;
+        localStorage.setItem('jewelry_items', JSON.stringify(items));
 
-    return !error;
+        // تنبيه عند المخزون المنخفض
+        if (newQty <= 1 && newQty > 0) {
+          notificationSystem.warning('مخزون منخفض جداً', `القطعة ${code} المخزون: ${newQty}`);
+        } else if (newQty === 0) {
+          notificationSystem.error('نفد المخزون', `القطعة ${code} نفدت من المخزون`);
+        }
+        return true;
+      }
+    }
+    return false;
   },
 
   // تأكيد البيع وحفظ الفاتورة
   confirmSale: async (invoice: SaleInvoice): Promise<SaleInvoice> => {
-    const { data, error } = await supabase
-      .from('sale_invoices')
-      .insert([{
-        invoice_number: invoice.invoice_number,
-        customer_name: invoice.customer_name,
-        total_amount: invoice.total_amount,
-        seller_name: invoice.seller_name,
-        seller_code: invoice.seller_code,
-        items: invoice.items,
-      }])
-      .select()
-      .single();
+    try {
+      // Try Supabase first
+      await supabase
+        .from('sale_invoices')
+        .insert([{
+          invoice_number: invoice.invoice_number,
+          customer_name: invoice.customer_name,
+          total_amount: invoice.total_amount,
+          seller_name: invoice.seller_name,
+          seller_code: invoice.seller_code,
+          items: invoice.items,
+        }]);
+    } catch (e) {
+      console.log('Supabase not available, using local storage');
+    }
 
-    if (error) throw error;
-
-    // حفظ نسخة في localStorage كنسخة احتياطية
+    // Always save to local storage as fallback
     saveInvoiceToLocal(invoice);
+    logActivity('INVOICE_CREATED', `إنشاء فاتورة: ${invoice.invoice_number}`, {
+      customer: invoice.customer_name,
+      total: invoice.total_amount,
+      items: invoice.items.length,
+    });
+    notificationSystem.success('تم البيع', `تم إنشاء الفاتورة ${invoice.invoice_number}`);
 
-    // إرسال إيميل للإدارة (placeholder - يمكن تفعيله لاحقاً)
-    sendInvoiceEmail(invoice);
-
-    return data;
+    return invoice;
   },
 
   // جلب كل الفواتير
@@ -216,11 +528,9 @@ export const jewelryApi = {
 
       if (error) throw error;
 
-      // دمج مع النسخ المحلية
       const localInvoices = getLocalInvoices();
       const mergedInvoices = [...(data || [])];
 
-      // إضافة الفواتير المحلية التي ليست موجودة في السحابة
       localInvoices.forEach(local => {
         if (!mergedInvoices.find(inv => inv.invoice_number === local.invoice_number)) {
           mergedInvoices.unshift(local);
@@ -229,7 +539,6 @@ export const jewelryApi = {
 
       return mergedInvoices;
     } catch (error) {
-      // في حالة فشل الاتصال، جلب من localStorage
       return getLocalInvoices();
     }
   },
@@ -263,6 +572,10 @@ export const jewelryApi = {
       .single();
 
     if (error) throw error;
+
+    logActivity('ITEM_UPDATED', `تعديل قطعة: ${item.item_code}`, item);
+    notificationSystem.success('تم التعديل', `تم تحديث القطعة ${item.item_code}`);
+
     return data;
   },
 
@@ -273,7 +586,26 @@ export const jewelryApi = {
       .delete()
       .eq('item_code', code);
 
+    if (!error) {
+      logActivity('ITEM_DELETED', `حذف قطعة: ${code}`);
+      notificationSystem.warning('تم الحذف', `تم حذف القطعة ${code}`);
+    }
+
     return !error;
+  },
+
+  // البحث عن قطع مطابقة
+  findMatchingItems: async (item: Partial<JewelryItem>): Promise<JewelryItem[]> => {
+    const { data, error } = await supabase
+      .from('jewelry_items')
+      .select('*')
+      .eq('model_name', item.model_name)
+      .eq('karat', item.karat)
+      .eq('category', item.category)
+      .eq('weight', item.weight);
+
+    if (error) return [];
+    return data || [];
   },
 };
 
@@ -281,41 +613,12 @@ export const jewelryApi = {
 const saveInvoiceToLocal = (invoice: SaleInvoice) => {
   const invoices = getLocalInvoices();
   invoices.unshift(invoice);
-  localStorage.setItem('saved_invoices', JSON.stringify(invoices.slice(0, 100))); // حفظ آخر 100 فاتورة
+  localStorage.setItem('saved_invoices', JSON.stringify(invoices.slice(0, 100)));
 };
 
-// جلب الفواتير من localStorage
 const getLocalInvoices = (): SaleInvoice[] => {
   const data = localStorage.getItem('saved_invoices');
   return data ? JSON.parse(data) : [];
-};
-
-// إرسال إيميل (placeholder - يتطلب خدمة إيميل حقيقية)
-// يمكن تفعيله لاحقاً مع Supabase Edge Functions أو خدمة خارجية
-const sendInvoiceEmail = async (invoice: SaleInvoice) => {
-  // TODO: تفعيل إرسال الإيميل
-  // يمكن استخدام:
-  // 1. Supabase Edge Functions مع خدمات إيميل (SendGrid, Mailgun)
-  // 2. خدمات مثل EmailJS أو Formspree
-  // 3. Zapier أو Integromat لربط الأحداث
-
-  console.log('📧 Invoice Email Notification (placeholder):');
-  console.log(`  To: manager@alhumroni.com`);
-  console.log(`  Invoice: ${invoice.invoice_number}`);
-  console.log(`  Amount: ${invoice.total_amount} د.ل`);
-  console.log(`  Customer: ${invoice.customer_name || 'غير محدد'}`);
-  console.log(`  Seller: ${invoice.seller_name}`);
-  console.log(`  Items: ${invoice.items.length} قطع`);
-
-  // في الإنتاج، يمكن حفظ الطلب في جدول لإرساله لاحقاً
-  const emailQueue = JSON.parse(localStorage.getItem('email_queue') || '[]');
-  emailQueue.push({
-    to: 'manager@alhumroni.com',
-    invoice: invoice.invoice_number,
-    amount: invoice.total_amount,
-    timestamp: new Date().toISOString(),
-  });
-  localStorage.setItem('email_queue', JSON.stringify(emailQueue.slice(-50)));
 };
 
 // إدارة السلة في LocalStorage
@@ -390,4 +693,71 @@ export const generateInvoiceNumber = (): string => {
 // توليد QR Code URL
 export const generateQRCodeUrl = (code: string): string => {
   return `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${code}`;
+};
+
+// Model names storage (for combobox)
+export const modelNamesStorage = {
+  getAll: (): string[] => {
+    const data = localStorage.getItem('model_names');
+    return data ? JSON.parse(data) : [];
+  },
+
+  add: (name: string) => {
+    const names = modelNamesStorage.getAll();
+    if (!names.includes(name)) {
+      names.push(name);
+      localStorage.setItem('model_names', JSON.stringify(names));
+    }
+  },
+
+  remove: (name: string) => {
+    const names = modelNamesStorage.getAll().filter(n => n !== name);
+    localStorage.setItem('model_names', JSON.stringify(names));
+  },
+};
+
+// Categories storage
+export const categoriesStorage = {
+  getAll: (): string[] => {
+    const data = localStorage.getItem('categories');
+    return data ? JSON.parse(data) : [
+      'خاتم', 'سوار', 'قلادة', 'حلق', 'سلسلة', 'عثرة', 'أخرى'
+    ];
+  },
+
+  add: (category: string) => {
+    const categories = categoriesStorage.getAll();
+    if (!categories.includes(category)) {
+      categories.push(category);
+      localStorage.setItem('categories', JSON.stringify(categories));
+    }
+  },
+};
+
+// Utility: Format number with English digits and commas
+export const formatNumber = (num: number, decimals: number = 2): string => {
+  return num.toLocaleString('en-US', {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  });
+};
+
+// Utility: Parse formatted number
+export const parseFormattedNumber = (str: string): number => {
+  return parseFloat(str.replace(/,/g, '')) || 0;
+};
+
+// Utility: Format currency
+export const formatCurrency = (amount: number): string => {
+  return `${formatNumber(amount)} د.ل`;
+};
+
+// Utility: Format weight
+export const formatWeight = (weight: number): string => {
+  return `${formatNumber(weight, 2)} غ`;
+};
+
+// Utility: Format percentage
+export const formatPercentage = (value: number): string => {
+  return `${formatNumber(value, 2)}%`;
 };

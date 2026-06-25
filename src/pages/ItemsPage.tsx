@@ -15,8 +15,15 @@ const ItemsPage: React.FC = () => {
 
   const loadItems = async () => {
     try {
-      const data = await jewelryApi.getAllItems();
-      setItems(data);
+      // Load from localStorage first (primary source)
+      const localData = localStorage.getItem('jewelry_items');
+      if (localData) {
+        setItems(JSON.parse(localData));
+      } else {
+        // Fallback to API
+        const data = await jewelryApi.getAllItems();
+        setItems(data);
+      }
     } catch (error) {
       console.error('Error loading items:', error);
     }

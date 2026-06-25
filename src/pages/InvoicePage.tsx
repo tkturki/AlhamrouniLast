@@ -3,6 +3,8 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { Printer, ArrowRight, Home, CheckCircle } from 'lucide-react';
 import { SaleInvoice } from '../services/supabase';
 import { numberToArabicWords } from '../utils/arabic';
+import { getSystemSettings } from '../services/settings';
+import { QRCodeSVG } from 'qrcode.react';
 
 const InvoicePage: React.FC = () => {
   const location = useLocation();
@@ -19,23 +21,111 @@ const InvoicePage: React.FC = () => {
   }, [location.state, navigate]);
 
   const handlePrint = () => {
-    window.print();
+    if (!invoice) return;
+    const s = getSystemSettings();
+    const date = new Date(invoice.created_at);
+    const day = date.getDate().toString().padStart(2, '0');
+    const month = (date.getMonth() + 1).toString().padStart(2, '0');
+    const year = date.getFullYear();
+    const total = invoice.total_amount || 0;
+    const words = total > 0 ? numberToArabicWords(total) : 'صفر';
+
+    const rows = (invoice.items || []).map((it, i) => `
+      <tr>
+        <td style="border:1px solid #333;padding:4px 6px;text-align:right;width:22%">${it.model_name || it.category || '----'}</td>
+        <td style="border:1px solid #333;padding:4px 6px;text-align:center;width:10%;font-weight:bold">${it.karat || '21'}</td>
+        <td style="border:1px solid #333;padding:4px 6px;text-align:center;width:15%">${(it.weight || 0).toFixed(2)}</td>
+        <td style="border:1px solid #333;padding:4px 6px;text-align:center;width:15%">${it.price_per_gram ? Number(it.price_per_gram).toLocaleString('en-US') : ((it.total || 0) / ((it.weight || 1) * (it.quantity || 1))).toFixed(2)}</td>
+        <td style="border:1px solid #333;padding:4px 6px;text-align:center;width:18%">${(it.total || 0).toLocaleString('en-US', {minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+        <td style="border:1px solid #333;padding:4px 6px;text-align:center;width:20%"></td>
+      </tr>`).join('');
+
+    const emptyRows = Array.from({length: Math.max(0, 6 - (invoice.items?.length || 0))}).map(() => `
+      <tr style="height:24px">
+        <td style="border:1px solid #333"></td>
+        <td style="border:1px solid #333"></td>
+        <td style="border:1px solid #333"></td>
+        <td style="border:1px solid #333"></td>
+        <td style="border:1px solid #333"></td>
+        <td style="border:1px solid #333"></td>
+      </tr>`).join('');
+
+    const qrSvg = document.querySelector('#invoice-qr svg');
+    const qrData = qrSvg ? qrSvg.outerHTML : '';
+
+    const html = `<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8"><title>فاتورة ${invoice.invoice_number}</title>
+  <style>
+    @page{size:A5 landscape;margin:3mm}
+    *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;box-sizing:border-box}
+    body{margin:0;padding:5mm;font-family:Arial,sans-serif;color:#000;background:#fff;width:190mm}
+    table{width:100%;border-collapse:collapse}tr{page-break-inside:avoid}
+  </style>
+</head><body>
+  <div style="text-align:center;margin-bottom:8px">
+    <img src="/logo.png" style="width:70px;height:70px;border-radius:50%;border:2px solid #ccc"/>
+    <div style="font-size:18px;font-weight:900;letter-spacing:0.05em;margin:4px 0">مجوهرات الحمروني</div>
+    <div style="font-size:9px;color:#555">لإستيراد الحُليّ والمجوهرات والأحجار الكريمة والمعادن الثمينة (ذ-م-م)</div>
+    <div style="margin:4px auto">${qrData}</div>
+  </div>
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;font-size:10px">
+    <div><b>التاريخ: </b><span style="border-bottom:1px solid #999;padding:0 6px">${year}/${month}/${day}</span></div>
+    <div><b>فاتورة تفصيلية رقم: </b><span style="color:#dc2626;font-weight:bold;font-size:12px;font-family:monospace">${invoice.invoice_number}</span></div>
+  </div>
+  <div style="margin-bottom:8px;font-size:10px"><b>السيد: </b><span style="border-bottom:1px solid #999;padding:0 12px;font-weight:bold">${invoice.customer_name || '─────────────────────────────'}</span></div>
+  <div style="border-top:2px solid #000;margin-bottom:2px"></div>
+  <table>
+    <thead><tr style="border-bottom:2px solid #000">
+      <th style="border:1px solid #333;padding:5px 6px;text-align:right;width:22%;font-weight:bold">الصنف</th>
+      <th style="border:1px solid #333;padding:5px 6px;text-align:center;width:10%;font-weight:bold">العيار</th>
+      <th style="border:1px solid #333;padding:5px 6px;text-align:center;width:15%;font-weight:bold">العدد/الوزن<br>(جـرام)</th>
+      <th style="border:1px solid #333;padding:5px 6px;text-align:center;width:15%;font-weight:bold">السعر<br>(د.ل)</th>
+      <th style="border:1px solid #333;padding:5px 6px;text-align:center;width:18%;font-weight:bold">الكمية<br>(د.ل)</th>
+      <th style="border:1px solid #333;padding:5px 6px;text-align:center;width:20%;font-weight:bold">ملاحظات</th>
+    </tr></thead>
+    <tbody>
+      ${rows}${emptyRows}
+      <tr style="border-bottom:1px solid #333">
+        <td colspan="4" style="border:1px solid #333;padding:4px 6px;text-align:center;font-weight:bold">اجمالي الفاتورة:</td>
+        <td style="border:1px solid #333;padding:4px 6px;text-align:center;font-weight:bold">${total.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+        <td style="border:1px solid #333"></td>
+      </tr>
+      <tr style="border-bottom:1px solid #333">
+        <td colspan="4" style="border:1px solid #333;padding:4px 6px;text-align:center;font-weight:bold">المدة /نوع:</td>
+        <td style="border:1px solid #333"></td><td style="border:1px solid #333"></td>
+      </tr>
+      <tr style="border-bottom:1px solid #333">
+        <td colspan="4" style="border:1px solid #333;padding:4px 6px;text-align:center;font-weight:bold">الرسوم:</td>
+        <td style="border:1px solid #333"></td><td style="border:1px solid #333"></td>
+      </tr>
+    </tbody>
+  </table>
+  <div style="margin-top:8px;font-size:10px;border:1px solid #999;padding:5px 8px"><b>بالحروف: </b><b style="color:#1f2937">${words}</b></div>
+  <div style="display:flex;justify-content:space-between;margin-top:12px;font-size:10px">
+    <div style="text-align:center"><div style="border-top:1px solid #999;width:120px;margin-top:20px"></div><div style="font-size:9px;color:#555">توقيع العميل</div></div>
+    <div style="text-align:center"><div style="border-top:1px solid #999;width:120px;margin-top:20px"></div><div style="font-size:9px;color:#555">يعتمد المدير العام</div></div>
+  </div>
+  <div style="border-top:2px solid #000;margin:12px 0 6px"></div>
+  <div style="display:flex;justify-content:space-between;font-size:8px;color:#555">
+    <div style="text-align:right"><div>الهاتف: +218912133218</div><div>البريد: osama_hamruni@yahoo.com</div></div>
+    <div style="text-align:center"><div>ف.ت. ${invoice.invoice_number}</div></div>
+    <div style="text-align:left"><div>العنوان: ليبيا - طرابلس - شارع جرابة</div></div>
+  </div>
+</body></html>`;
+
+    const printWindow = window.open('', '_blank', 'width=900,height=700');
+    if (!printWindow) return;
+    printWindow.document.write(html);
+    printWindow.document.close();
+    printWindow.focus();
+    setTimeout(() => { printWindow.print(); printWindow.close(); }, 600);
     setPrinted(true);
   };
 
   const handleNewSale = () => {
     navigate('/sales');
-  };
-
-  const formatDate = (dateStr: string) => {
-    const date = new Date(dateStr);
-    return date.toLocaleString('ar-SA', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
   };
 
   if (!invoice) {
@@ -81,214 +171,110 @@ const InvoicePage: React.FC = () => {
         )}
       </div>
 
-      {/* الفاتورة الاحترافية */}
-      <div className="bg-white text-gray-900 shadow-2xl overflow-hidden" id="invoice">
+      {/* الفاتورة */}
+      <div className="bg-white text-gray-900 shadow-2xl overflow-hidden print:shadow-none" id="invoice">
 
-        {/* الهيدر الذهبي الفاخر */}
-        <div className="relative">
-          {/* خلفية ذهبية متدرجة */}
-          <div className="bg-gradient-to-b from-yellow-500 via-yellow-400 to-yellow-500 p-8 text-center relative overflow-hidden">
-            {/* زخارف ذهبية */}
-            <div className="absolute top-0 left-0 w-24 h-24 opacity-20">
-              <svg viewBox="0 0 100 100" className="w-full h-full">
-                <path d="M0,0 L100,0 L100,10 L10,10 L10,100 L0,100 Z" fill="currentColor"/>
-              </svg>
-            </div>
-            <div className="absolute top-0 right-0 w-24 h-24 opacity-20 transform scale-x-[-1]">
-              <svg viewBox="0 0 100 100" className="w-full h-full">
-                <path d="M0,0 L100,0 L100,10 L10,10 L10,100 L0,100 Z" fill="currentColor"/>
-              </svg>
-            </div>
-
-            <img src="/logo.png" alt="مجوهرات الحمروني" className="w-24 h-24 mx-auto mb-3 rounded-full shadow-2xl border-4 border-yellow-600" />
-            <h1 className="text-4xl font-bold text-gray-900 mb-2 tracking-wide">مجوهرات الحمروني</h1>
-            <p className="text-gray-800 text-lg">أجود المجوهرات وأفخرها</p>
-            <div className="flex justify-center gap-4 mt-3">
-              <span className="bg-gray-900 text-yellow-400 px-3 py-1 rounded-full text-sm font-bold">عيار 24</span>
-              <span className="bg-gray-900 text-yellow-400 px-3 py-1 rounded-full text-sm font-bold">عيار 21</span>
-              <span className="bg-gray-900 text-yellow-400 px-3 py-1 rounded-full text-sm font-bold">عيار 18</span>
-            </div>
-          </div>
-
-          {/* حدود ذهبية زخرفية */}
-          <div className="h-2 bg-gradient-to-r from-yellow-600 via-yellow-400 to-yellow-600"></div>
-        </div>
-
-        {/* معلومات الفاتورة */}
-        <div className="p-6 bg-gradient-to-b from-gray-50 to-white">
-          <div className="grid grid-cols-2 gap-6">
-            <div className="border-r-4 border-yellow-500 pr-4">
-              <p className="text-gray-500 text-sm font-medium">رقم الفاتورة</p>
-              <p className="text-2xl font-bold font-mono text-yellow-600">{invoice.invoice_number}</p>
-            </div>
-            <div className="border-l-4 border-yellow-500 pl-4 text-left">
-              <p className="text-gray-500 text-sm font-medium">التاريخ والوقت</p>
-              <p className="text-xl font-bold">{formatDate(invoice.created_at)}</p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-6 mt-4">
-            <div className="border-r-4 border-gray-300 pr-4">
-              <p className="text-gray-500 text-sm font-medium">اسم العميل</p>
-              <p className="text-xl font-bold border-b-2 border-dashed border-gray-300 pb-1">{invoice.customer_name || '────────────────'}</p>
-            </div>
-            <div className="border-l-4 border-gray-300 pl-4 text-left">
-              <p className="text-gray-500 text-sm font-medium">البائع</p>
-              <p className="text-xl font-bold border-b-2 border-dashed border-gray-300 pb-1">{invoice.seller_name}</p>
-            </div>
+        {/* الهيدر */}
+        <div className="text-center p-4">
+          <div id="invoice-qr" className="hidden"></div>
+          <img src="/logo.png" alt="الحمروني" className="w-20 h-20 mx-auto mb-1 rounded-full border-2 border-gray-300" />
+          <h1 className="text-2xl font-black text-gray-900 tracking-wide">مجوهرات الحمروني</h1>
+          <p className="text-[10px] text-gray-600">لإستيراد الحُليّ والمجوهرات والأحجار الكريمة والمعادن الثمينة (ذ-م-م)</p>
+          <div className="mt-2 flex justify-center">
+            <QRCodeSVG value={`INV-${invoice.invoice_number}-${invoice.total_amount}-${invoice.customer_name || 'CASH'}`} size={60} bgColor="white" fgColor="black" level="M" />
           </div>
         </div>
 
-        {/* خط ذهبي فاصل */}
-        <div className="h-1 bg-gradient-to-r from-transparent via-yellow-500 to-transparent"></div>
+        {/* التاريخ ورقم الفاتورة */}
+        <div className="flex justify-between items-center mb-2 text-[10px] px-4">
+          <div><span className="font-bold">التاريخ: </span><span className="border-b border-gray-400 px-2">{new Date(invoice.created_at).getFullYear()} / {String(new Date(invoice.created_at).getMonth()+1).padStart(2,'0')} / {String(new Date(invoice.created_at).getDate()).padStart(2,'0')}</span></div>
+          <div><span className="font-bold">فاتورة تفصيلية رقم: </span><span className="text-red-600 font-bold text-sm font-mono">{invoice.invoice_number}</span></div>
+        </div>
 
-        {/* جدول القطع الفاخر */}
-        <div className="p-6">
-          <div className="border-2 border-gray-300 rounded-lg overflow-hidden">
-            <table className="w-full">
-              <thead>
-                <tr className="bg-gradient-to-r from-gray-800 to-gray-700 text-white">
-                  <th className="py-4 px-3 text-right border-b border-gray-600">#</th>
-                  <th className="py-4 px-3 text-right border-b border-r border-gray-600">اسم الصنف</th>
-                  <th className="py-4 px-3 text-center border-b border-r border-gray-600">الكود</th>
-                  <th className="py-4 px-3 text-center border-b border-r border-gray-600">العيار</th>
-                  <th className="py-4 px-3 text-center border-b border-r border-gray-600">الوزن (غ)</th>
-                  <th className="py-4 px-3 text-center border-b border-r border-gray-600">الكمية</th>
-                  <th className="py-4 px-3 text-left border-b">المجموع (د.ل)</th>
+        {/* السيد */}
+        <div className="mb-3 text-[10px] px-4">
+          <span className="font-bold">السيد: </span>
+          <span className="border-b border-gray-400 px-4 font-bold">{invoice.customer_name || '─────────────────────────────'}</span>
+        </div>
+
+        <div className="border-t-2 border-gray-900 mx-4 mb-0"></div>
+
+        {/* جدول القطع */}
+        <div className="px-4">
+          <table className="w-full text-[10px] border-collapse">
+            <thead>
+              <tr className="border-b-2 border-gray-900">
+                <th className="py-1.5 px-1 text-right font-bold border-l border-gray-900 w-[22%]">الصنف</th>
+                <th className="py-1.5 px-1 text-center font-bold border-l border-gray-900 w-[10%]">العيار</th>
+                <th className="py-1.5 px-1 text-center font-bold border-l border-gray-900 w-[15%]">العدد/الوزن<br/>(جـرام)</th>
+                <th className="py-1.5 px-1 text-center font-bold border-l border-gray-900 w-[15%]">السعر<br/>(د.ل)</th>
+                <th className="py-1.5 px-1 text-center font-bold border-l border-gray-900 w-[18%]">الكمية<br/>(د.ل)</th>
+                <th className="py-1.5 px-1 text-center font-bold w-[20%]">ملاحظات</th>
+              </tr>
+            </thead>
+            <tbody>
+              {invoice.items.map((item, index) => (
+                <tr key={index} className="border-b border-gray-300">
+                  <td className="py-1.5 px-1 border-l border-gray-300 text-right">{item.model_name || item.category || '────'}</td>
+                  <td className="py-1.5 px-1 text-center border-l border-gray-300 font-bold">{item.karat || '21'}</td>
+                  <td className="py-1.5 px-1 text-center border-l border-gray-300">{(item.weight || 0).toFixed(2)}</td>
+                  <td className="py-1.5 px-1 text-center border-l border-gray-300">{item.price_per_gram ? Number(item.price_per_gram).toLocaleString('en-US') : ((item.total || 0) / ((item.weight || 1) * (item.quantity || 1))).toFixed(2)}</td>
+                  <td className="py-1.5 px-1 text-center border-l border-gray-300">{(item.total || 0).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+                  <td className="py-1.5 px-1 text-center"></td>
                 </tr>
-              </thead>
-              <tbody>
-                {invoice.items.map((item, index) => (
-                  <tr key={index} className={`border-b border-gray-200 ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
-                    <td className="py-3 px-3 border-r border-gray-200">{index + 1}</td>
-                    <td className="py-3 px-3 border-r border-gray-200">
-                      <div className="font-bold text-gray-900">{item.model_name}</div>
-                      <div className="text-xs text-gray-500">{item.category}</div>
-                    </td>
-                    <td className="py-3 px-3 text-center border-r border-gray-200 font-mono text-sm bg-yellow-50">{item.item_code}</td>
-                    <td className="py-3 px-3 text-center border-r border-gray-200 font-bold text-yellow-600">{item.karat || '21'}</td>
-                    <td className="py-3 px-3 text-center border-r border-gray-200">{item.weight.toFixed(2)}</td>
-                    <td className="py-3 px-3 text-center border-r border-gray-200">{item.quantity}</td>
-                    <td className="py-3 px-3 text-left font-bold text-green-700 text-lg">{item.total.toLocaleString()}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+              ))}
+              {Array.from({ length: Math.max(0, 6 - (invoice.items?.length || 0)) }).map((_, i) => (
+                <tr key={`empty-${i}`} className="border-b border-gray-300 h-7">
+                  <td className="border-l border-gray-300"></td><td className="border-l border-gray-300"></td><td className="border-l border-gray-300"></td>
+                  <td className="border-l border-gray-300"></td><td className="border-l border-gray-300"></td><td></td>
+                </tr>
+              ))}
+              <tr className="border-b border-gray-300">
+                <td colSpan={4} className="py-1.5 px-1 border-l border-gray-300 text-center font-bold">اجمالي الفاتورة:</td>
+                <td className="py-1.5 px-1 text-center border-l border-gray-300 font-bold">{invoice.total_amount.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+                <td></td>
+              </tr>
+            </tbody>
+          </table>
         </div>
 
-        {/* ملخص الفاتورة */}
-        <div className="px-6 pb-6">
-          <div className="bg-gradient-to-r from-gray-100 to-gray-50 border-2 border-yellow-500 rounded-xl p-6">
-            {/* الإجمالي */}
-            <div className="flex justify-between items-center mb-6 pb-4 border-b-2 border-yellow-300">
-              <span className="text-2xl font-bold text-gray-800">الإجمالي:</span>
-              <span className="text-4xl font-bold text-green-700">{invoice.total_amount.toLocaleString()} د.ل</span>
-            </div>
-
-            {/* التفقيط - الخانة الذهبية */}
-            <div className="relative">
-              <div className="absolute -inset-1 bg-gradient-to-r from-yellow-400 via-yellow-500 to-yellow-400 rounded-xl opacity-30"></div>
-              <div className="relative bg-gradient-to-br from-yellow-100 via-yellow-50 to-white border-2 border-yellow-500 rounded-xl p-6">
-                <div className="flex items-center justify-center mb-2">
-                  <div className="h-px flex-1 bg-gradient-to-r from-transparent to-yellow-500"></div>
-                  <span className="px-4 text-yellow-700 font-bold text-sm">المبلغ كتابةً</span>
-                  <div className="h-px flex-1 bg-gradient-to-l from-transparent to-yellow-500"></div>
-                </div>
-                <p className="text-2xl font-bold text-yellow-800 text-center leading-relaxed tracking-wide">
-                  {totalInWords}
-                </p>
-                <div className="flex items-center justify-center mt-2">
-                  <div className="h-1 w-32 bg-gradient-to-r from-yellow-400 via-yellow-600 to-yellow-400 rounded-full"></div>
-                </div>
-              </div>
-            </div>
+        {/* بالحروف */}
+        <div className="mx-4 mt-3 text-[10px] border border-gray-400 p-2">
+          <div className="flex items-center gap-2">
+            <span className="font-bold">بالحروف:</span>
+            <span className="font-bold text-gray-800">{totalInWords}</span>
           </div>
         </div>
 
         {/* التوقيعات */}
-        <div className="px-6 pb-6">
-          <div className="grid grid-cols-2 gap-8">
-            <div className="text-center border-t-2 border-gray-300 pt-4">
-              <div className="h-16 border-b-2 border-gray-400 mb-2"></div>
-              <p className="font-bold text-gray-700">توقيع العميل</p>
-              <p className="text-sm text-gray-500">{invoice.customer_name || 'العميل'}</p>
-            </div>
-            <div className="text-center border-t-2 border-gray-300 pt-4">
-              <div className="h-16 border-b-2 border-gray-400 mb-2"></div>
-              <p className="font-bold text-gray-700">توقيع البائع</p>
-              <p className="text-sm text-gray-500">{invoice.seller_name}</p>
-            </div>
+        <div className="mx-4 mt-4 text-[10px]">
+          <div className="flex justify-between">
+            <div className="text-center"><div className="border-t border-gray-400 w-32 mt-6"></div><p className="text-[9px] text-gray-600">توقيع العميل</p></div>
+            <div className="text-center"><div className="border-t border-gray-400 w-32 mt-6"></div><p className="text-[9px] text-gray-600">يعتمد المدير العام</p></div>
           </div>
         </div>
 
-        {/* الفوتر الفاخر */}
-        <div className="bg-gradient-to-r from-gray-900 via-gray-800 to-gray-900 text-white p-6 text-center">
-          <div className="flex justify-center items-center gap-4 mb-3">
-            <div className="w-2 h-2 bg-yellow-500 rounded-full"></div>
-            <p className="text-xl font-bold">شكراً لتعاملكم معنا</p>
-            <div className="w-2 h-2 bg-yellow-500 rounded-full"></div>
-          </div>
-          <p className="text-gray-400 text-sm">القطع المباعة لا يمكن استبدالها أو إرجاعها</p>
-          <div className="mt-4 flex justify-center items-center gap-6 text-xs text-gray-500">
-            <span>رقم الفاتورة: {invoice.invoice_number}</span>
-            <span className="w-1 h-1 bg-gray-500 rounded-full"></span>
-            <span>البائع: {invoice.seller_code}</span>
-            <span className="w-1 h-1 bg-gray-500 rounded-full"></span>
-            <span>{invoice.items.length} قطع</span>
-          </div>
-        </div>
+        <div className="border-t-2 border-gray-900 mx-4 mt-4 mb-2"></div>
 
-        {/* خط ذهبي سفلي */}
-        <div className="h-1 bg-gradient-to-r from-yellow-600 via-yellow-400 to-yellow-600"></div>
+        {/* الفوتر */}
+        <div className="mx-4 text-[8px] text-gray-600 flex justify-between pb-3">
+          <div className="text-right"><p>الهاتف: +218912133218</p><p>البريد: osama_hamruni@yahoo.com</p></div>
+          <div className="text-center"><p>ف.ت. {invoice.invoice_number}</p></div>
+          <div className="text-left"><p>العنوان: ليبيا - طرابلس - شارع جرابة</p></div>
+        </div>
       </div>
 
       {/* أزرار ما بعد الطباعة */}
       {printed && (
         <div className="mt-6 flex gap-4 print:hidden">
-          <button
-            onClick={() => window.print()}
-            className="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-bold py-4 rounded-xl flex items-center justify-center gap-2 transition-all"
-          >
-            <Printer className="w-6 h-6" />
-            طباعة أخرى
+          <button onClick={() => handlePrint()} className="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-bold py-4 rounded-xl flex items-center justify-center gap-2 transition-all">
+            <Printer className="w-6 h-6" /> طباعة أخرى
           </button>
-          <button
-            onClick={handleNewSale}
-            className="flex-1 bg-yellow-600 hover:bg-yellow-500 text-gray-900 font-bold py-4 rounded-xl flex items-center justify-center gap-2 transition-all"
-          >
-            <Home className="w-6 h-6" />
-            العودة للرئيسية
+          <button onClick={handleNewSale} className="flex-1 bg-yellow-600 hover:bg-yellow-500 text-gray-900 font-bold py-4 rounded-xl flex items-center justify-center gap-2 transition-all">
+            <Home className="w-6 h-6" /> العودة للرئيسية
           </button>
         </div>
       )}
-
-      {/* CSS للطباعة */}
-      <style>{`
-        @media print {
-          @page {
-            size: A4;
-            margin: 10mm;
-          }
-          body {
-            background: white !important;
-            -webkit-print-color-adjust: exact;
-            print-color-adjust: exact;
-          }
-          #invoice-container {
-            max-width: none !important;
-            padding: 0 !important;
-          }
-          .hidden\\:print\\:hidden {
-            display: none !important;
-          }
-          #invoice {
-            box-shadow: none !important;
-            margin: 0 !important;
-            padding: 0 !important;
-          }
-        }
-      `}</style>
     </div>
   );
 };

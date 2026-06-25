@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { authApi } from '../services/supabase';
-import { Lock, Mail, Eye, EyeOff, AlertCircle } from 'lucide-react';
+import { Lock, User, Eye, EyeOff, AlertCircle } from 'lucide-react';
 
 const LoginPage: React.FC = () => {
-  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
@@ -17,7 +17,7 @@ const LoginPage: React.FC = () => {
     setLoading(true);
 
     try {
-      const user = await authApi.login(email, password);
+      const user = await authApi.login(username, password);
       // توجيه حسب نوع المستخدم
       if (user.role === 'admin') {
         navigate('/');
@@ -56,16 +56,16 @@ const LoginPage: React.FC = () => {
               </div>
             )}
 
-            {/* Email */}
+            {/* Username */}
             <div>
-              <label className="block text-gray-300 mb-2 font-medium">البريد الإلكتروني</label>
+              <label className="block text-gray-300 mb-2 font-medium">اسم المستخدم</label>
               <div className="relative">
-                <Mail className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <User className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                 <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="أدخل البريد الإلكتروني"
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="أدخل اسم المستخدم"
                   className="w-full bg-gray-700 border border-gray-600 rounded-lg pl-12 pr-4 py-3 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-yellow-500"
                   required
                 />
@@ -108,23 +108,6 @@ const LoginPage: React.FC = () => {
               )}
             </button>
           </form>
-
-          {/* Demo Credentials */}
-          <div className="px-6 pb-6">
-            <div className="bg-gray-700/50 rounded-lg p-4 border border-gray-600">
-              <p className="text-yellow-400 text-sm font-bold mb-2">🔑 بيانات الدخول التجريبية:</p>
-              <div className="space-y-2 text-sm text-gray-300">
-                <div className="flex justify-between">
-                  <span>مدير:</span>
-                  <span className="font-mono">admin@alhumroni.com / admin123</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>بائع:</span>
-                  <span className="font-mono">seller@alhumroni.com / seller123</span>
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
     </div>

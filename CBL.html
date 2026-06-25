@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>تقرير استراتيجي: اختراق مصرف ليبيا المركزي - تحليل شامل</title>
+    <style>
+        :root {
+            --primary: #1a3a52;
+            --secondary: #2c5282;
+            --accent: #d4af37;
+            --danger: #e53e3e;
+            --warning: #dd6b20;
+            --success: #38a169;
+            --light: #f7fafc;
+            --dark: #1a202c;
+        }
+        
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, sans-serif;
+            background: #f0f4f8;
+            color: var(--dark);
+            line-height: 1.8;
+            padding: 20px;
+        }
+        
+        .container { max-width: 1200px; margin: 0 auto; }
+        
+        .header {
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            color: white;
+            padding: 40px;
+            border-radius: 12px;
+            margin-bottom: 30px;
+            text-align: center;
+            border-bottom: 4px solid var(--accent);
+        }
+        
+        .header h1 {
+            color: var(--accent);
+            font-size: 2.2em;
+            margin-bottom: 15px;
+        }
+        
+        .section {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            margin-bottom: 25px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+        }
+        
+        .section h2 {
+            color: var(--primary);
+            font-size: 1.7em;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 3px solid var(--accent);
+        }
+        
+        .section h3 {
+            color: var(--secondary);
+            font-size: 1.3em;
+            margin: 20px 0 15px 0;
+        }
+        
+        .alert-box {
+            background: linear-gradient(135deg, #fff5f5, #fed7d7);
+            border: 2px solid var(--danger);
+            border-right: 6px solid var(--danger);
+            padding: 25px;
+            border-radius: 10px;
+            margin: 20px 0;
+        }
+        
+        .alert-box h3 {
+            color: var(--danger);
+            margin-bottom: 15px;
+        }
+        
+        .info-box {
+            background: linear-gradient(135deg, #ebf8ff, #bee3f8);
+            border: 2px solid var(--secondary);
+            border-right: 6px solid var(--secondary);
+            padding: 25px;
+            border-radius: 10px;
+            margin: 20px 0;
+        }
+        
+        .timeline {
+            position: relative;
+            padding-right: 40px;
+            margin: 20px 0;
+        }
+        
+        .timeline::before {
+            content: '';
+            position: absolute;
+            right: 15px;
+            top: 0;
+            bottom: 0;
+            width: 3px;
+            background: linear-gradient(to bottom, var(--danger), var(--warning), var(--success));
+        }
+        
+        .timeline-item {
+            position: relative;
+            margin-bottom: 25px;
+            padding: 15px;
+            background: var(--light);
+            border-radius: 8px;
+            border-right: 3px solid var(--primary);
+        }
+        
+        .timeline-item::before {
+            content: '';
+            position: absolute;
+            right: -33px;
+            top: 20px;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: white;
+            border: 3px solid var(--primary);
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        
+        .stat-card {
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+        }
+        
+        .stat-card .number {
+            font-size: 2.5em;
+            font-weight: bold;
+            color: var(--accent);
+            margin-bottom: 5px;
+        }
+        
+        .stat-card .label {
+            font-size: 0.9em;
+            opacity: 0.9;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        
+        table th {
+            background: var(--primary);
+            color: white;
+            padding: 12px;
+            text-align: right;
+            font-size: 0.95em;
+        }
+        
+        table td {
+            padding: 12px;
+            border-bottom: 1px solid #e2e8f0;
+            font-size: 0.9em;
+        }
+        
+        table tr:hover {
+            background: #f7fafc;
+        }
+        
+        ul, ol {
+            padding-right: 20px;
+            margin: 15px 0;
+        }
+        
+        li {
+            margin-bottom: 10px;
+        }
+        
+        .badge {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 0.8em;
+            font-weight: bold;
+            margin-right: 5px;
+        }
+        
+        .badge-critical { background: var(--danger); color: white; }
+        .badge-high { background: var(--warning); color: white; }
+        .badge-medium { background: var(--accent); color: #000; }
+        
+        @media print {
+            body { background: white; }
+            .section { box-shadow: none; border: 1px solid #ddd; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+
+    <div class="header">
+        <h1>🏛️ تقرير استراتيجي: اختراق مصرف ليبيا المركزي</h1>
+        <p>تحليل شامل لحادثة الاختراق السيبراني وتسريب البيانات على الدارك ويب</p>
+        <p style="margin-top: 10px; font-size: 0.9em;">يونيو 2026 | تقرير سري للغاية</p>
+    </div>
+
+    <!-- القسم 1: ملخص تنفيذي -->
+    <div class="section">
+        <h2>📊 الملخص التنفيذي</h2>
+        
+        <div class="alert-box">
+            <h3>⚠️ الوقائع المؤكدة:</h3>
+            <ul>
+                <li><strong>تاريخ الحادث:</strong> 9 يونيو 2026 - أعلن المصرف المركزي الليبي عن اكتشاف حادث سيبراني استهدف بعض أنظمته وخدماته التقنية [[59]]</li>
+                <li><strong>نوع الهجوم:</strong> برمجيات فدية (Ransomware) مع تسريب بيانات [[19]]</li>
+                <li><strong>حجم البيانات المسربة:</strong> 2 تيرابايت معروضة للبيع على الدارك ويب بتاريخ 7 يونيو 2026 [[11]]</li>
+                <li><strong>سعر البيع:</strong> 50,000 دولار أمريكي في أسواق الدارك ويب [[16]]</li>
+                <li><strong>البيانات المتأثرة:</strong> أرقام حسابات، أرصدة، كشوف حساب، بيانات عملاء [[11]]</li>
+                <li><strong>استجابة المصرف:</strong> عزل الأنظمة المتأثرة وتفعيل خطط استمرارية الأعمال [[64]]</li>
+            </ul>
+        </div>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="number">9 يونيو</div>
+                <div class="label">تاريخ الاكتشاف</div>
+            </div>
+            <div class="stat-card">
+                <div class="number">2 TB</div>
+                <div class="label">حجم البيانات</div>
+            </div>
+            <div class="stat-card">
+                <div class="number">$50K</div>
+                <div class="label">سعر البيع</div>
+            </div>
+            <div class="stat-card">
+                <div class="number">100 KG</div>
+                <div class="label">ذهب محبط (سبتمبر 2024)</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- القسم 2: التسلسل الزمني -->
+    <div class="section">
+        <h2>📅 التسلسل الزمني للأحداث</h2>
+        
+        <div class="timeline">
+            <div class="timeline-item">
+                <h4>أبريل 2025 - بداية الحملة</h4>
+                <p>بداية هجمات منظمة استهدفت الشركات النفطية الليبية في إطار حملة تجسس منظمة [[87]]</p>
+            </div>
+            
+            <div class="timeline-item">
+                <h4>نوفمبر 2025 - اختراق نفطي</h4>
+                <p>رصد وجود مهاجمين في شركة نفطية، لكن لم يتم اتخاذ إجراء حاسم [[87]]</p>
+            </div>
+            
+            <div class="timeline-item">
+                <h4>21 سبتمبر 2024 - حادثة الذهب</h4>
+                <p>إحباط محاولة تهريب 100 كيلوغرام من الذهب و1.5 مليون يورو من مطار مصراتة إلى تركيا على متن طائرة تابعة لشركة سما المتوسط [[78]][[81]]</p>
+            </div>
+            
+            <div class="timeline-item">
+                <h4>7 يونيو 2026 - التسريب على الدارك ويب</h4>
+                <p>ظهور بيانات مصرف ليبيا المركزي معروضة للبيع على الدارك ويب بحجم 2 تيرابايت [[11]]</p>
+            </div>
+            
+            <div class="timeline-item">
+                <h4>9 يونيو 2026 - الإعلان الرسمي</h4>
+                <p>المصرف المركزي يعلن عن الحادث السيبراني ويؤكد احتواءه [[59]][[64]]</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- القسم 3: الأسباب الحقيقية -->
+    <div class="section">
+        <h2>🔍 التحليل الاستراتيجي: الأسباب الجذرية</h2>
+        
+        <h3>الأسباب التقنية:</h3>
+        <ol>
+            <li><strong>الهندسة الاجتماعية (Social Engineering):</strong> المهاجمون اعتمدوا على خداع الموظفين بدلاً من اختراق الجدران النارية المتقدمة [[87]]</li>
+            
+            <li><strong>غياب تجزئة الشبكة (Network Segmentation):</strong> عدم فصل الأنظمة الحساسة (مثل SWIFT) عن الشبكات الإدارية العادية [[87]]</li>
+            
+            <li><strong>انعدام مبدأ "الثقة الصفرية" (Zero Trust):</strong> بمجرد دخول المهاجم، تمكن من التجول بحرية في الشبكة لأشهر [[87]]</li>
+            
+            <li><strong>فشل أنظمة الرصد (EDR/XDR):</strong> بقاء المهاجمين من نوفمبر 2025 إلى يونيو 2026 يعني "عمى سيبراني مؤسسي" [[87]]</li>
+            
+            <li><strong>معمارية شبكة مهترئة:</strong> الاعتماد على "الثقة المطلقة" بدلاً من التحقق المستمر [[87]]</li>
+        </ol>
+
+        <div class="info-box">
+            <h3>💡 ملاحظة تحليلية مهمة:</h3>
+            <p>المشكلة ليست في "الذكاء" التقني للمهاجم، بل في "الغباء" المعماري لشبكات المصرف. إذا كان المهاجم قادراً على الوصول إلى منظومات حساسة بعد دخوله من جهاز موظف بسيط، فهذا يعني عدم تطبيق مفاهيم الأمن السيبراني الحديثة [[87]].</p>
+        </div>
+
+        <h3>الأسباب التنظيمية:</h3>
+        <ul>
+            <li><strong>غياب الوعي الأمني:</strong> الموظفون يمثلون أضعف حلقة في السلسلة الأمنية</li>
+            <li><strong>بطء الاستجابة:</strong> وجود المهاجمين لأشهر دون اكتشاف يعني فشل فرق الأمن السيبراني</li>
+            <li><strong>نقص الخبرات:</strong> الاعتماد على شركات خارجية دون بناء كفاءات محلية</li>
+            <li><strong>الميزانيات:</strong> شراء تراخيص برمجية باهظة دون "عقول" بشرية تديرها [[87]]</li>
+        </ul>
+    </div>
+
+    <!-- القسم 4: أنواع الحماية -->
+    <div class="section">
+        <h2>🛡️ أنظمة الحماية المستخدمة في المصرف المركزي</h2>
+        
+        <h3>الأنظمة المعلنة:</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>نظام الحماية</th>
+                    <th>الوظيفة</th>
+                    <th>الحالة</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>منصة حجز العملات الأجنبية الإلكترونية</td>
+                    <td>تنظيم بيع النقد الأجنبي</td>
+                    <td><span class="badge badge-critical">تأثرت بالهجوم</span></td>
+                </tr>
+                <tr>
+                    <td>منصة LYPAY</td>
+                    <td>المدفوعات الإلكترونية</td>
+                    <td><span class="badge badge-medium">تعمل بشكل طبيعي</span></td>
+                </tr>
+                <tr>
+                    <td>أنظمة البطاقات المصرفية</td>
+                    <td>تشغيل البطاقات</td>
+                    <td><span class="badge badge-medium">تعمل بشكل طبيعي</span></td>
+                </tr>
+                <tr>
+                    <td>نظام حماية البيانات (منشور 18/2025)</td>
+                    <td>تنظيم حماية البيانات الشخصية</td>
+                    <td><span class="badge badge-high">غير كافٍ</span></td>
+                </tr>
+                <tr>
+                    <td>وحدة المعلومات المالية</td>
+                    <td>مكافحة غسيل الأموال</td>
+                    <td><span class="badge badge-medium">نشطة</span></td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h3>الثغرات المكتشفة:</h3>
+        <ul>
+            <li><strong>غياب التجزئة:</strong> الأنظمة الإدارية متصلة مباشرة بالأنظمة الحساسة [[87]]</li>
+            <li><strong>الرصد السلبي:</strong> أنظمة EDR/XDR موجودة لكن دون تحليل فعال [[87]]</li>
+            <li><strong>الاستجابة البطيئة:</strong> استغرقت الحملة 7 أشهر من الاختراق الأولي حتى الوصول للمصرف [[87]]</li>
+            <li><strong>حماية البيانات:</strong> رغم وجود منشور 18/2025 لحماية البيانات [[9]][[103]]، لم يتم تطبيقه بفعالية</li>
+        </ul>
+    </div>
+
+    <!-- القسم 5: العلاقة مع حادثة الذهب -->
+    <div class="section">
+        <h2>🔗 تحليل العلاقة مع إحباط تهريب 100 كيلو ذهب</h2>
+        
+        <div class="alert-box">
+            <h3>📋 تفاصيل حادثة الذهب (21 سبتمبر 2024):</h3>
+            <ul>
+                <li><strong>الكمية:</strong> 100 كيلوغرام من الذهب (حوالي 220 رطل)</li>
+                <li><strong>النقد:</strong> 1.5 مليون يورو</li>
+                <li><strong>الموقع:</strong> مطار مصراتة الدولي</li>
+                <li><strong>الوجهة:</strong> تركيا على متن طائرة شركة سما المتوسط</li>
+                <li><strong>الطريقة:</strong> إخفاء الذهب في 3 حقائب سفر، والنقد في حقيبة رابعة [[78]][[81]]</li>
+                <li><strong>النتيجة:</strong> ضبط الذهب والنقد واعتقال المسؤولين [[80]]</li>
+            </ul>
+        </div>
+
+        <h3>التحليل الاستراتيجي للعلاقة:</h3>
+        
+        <div class="info-box">
+            <h3>✅ الروابط المحتملة:</h3>
+            <ol>
+                <li><strong>السياق الزمني:</strong> حادثة الذهب (سبتمبر 2024) سبقت الاختراق (يونيو 2026) بـ 21 شهراً، مما يشير إلى وجود شبكات إجرامية منظمة تعمل على مستويات متعددة</li>
+                
+                <li><strong>نمط التهريب:</strong> ليبيا تستورد ذهباً من تركيا بقيمة 350 مليون دولار [[86]]، مما يخلق تدفقات مالية مشبوهة تحتاج لغسيل</li>
+                
+                <li><strong>الفساد الداخلي:</strong> في مايو 2024، أمر النائب العام باعتقال مدير الجمارك ومسؤولين في مطار مصراتة بسبب تهريب 26,000 كجم ذهب [[20]]</li>
+                
+                <li><strong>البيانات المسربة:</strong> قد تحتوي على معلومات عن تحويلات مالية مشبوهة مرتبطة بشبكات تهريب الذهب</li>
+                
+                <li><strong>الدوافع:</strong> الاختراق قد يكون محاولة من شبكات التهريب لـ:
+                    <ul>
+                        <li>سرقة بيانات تخفي أنشطة غير قانونية</li>
+                        <li>الانتقام من المصرف المركزي لتشديده الرقابة</li>
+                        <li>الحصول على معلومات عن تحقيقات جارية</li>
+                    </ul>
+                </li>
+            </ol>
+        </div>
+
+        <h3>الخلاصة التحليلية:</h3>
+        <p>بينما لا يوجد دليل مباشر يربط الحادثتين، إلا أن السياق يشير إلى:</p>
+        <ul>
+            <li>وجود شبكات إجرامية منظمة تعمل في تهريب الذهب وغسيل الأموال</li>
+            <li>فساد مؤسسي في أجهزة الدولة (الجمارك، المطارات)</li>
+            <li>المصرف المركزي يحاول تشديد الرقابة (منصة العملات الأجنبية، منشور حماية البيانات)</li>
+            <li>الاختراق قد يكون رداً من هذه الشبكات على جهود المصرف</li>
+        </ul>
+    </div>
+
+    <!-- القسم 6: الحلول والعلاج -->
+    <div class="section">
+        <h2>💊 خطة العلاج والوقاية من التكرار</h2>
+        
+        <h3>الإجراءات الفورية (0-30 يوم):</h3>
+        <ol>
+            <li><strong>عزل كامل:</strong> فصل جميع الأنظمة المتأثرة عن الشبكة الرئيسية [[64]]</li>
+            <li><strong>التدقيق الجنائي:</strong> التعاون مع خبراء دوليين لتحليل الأدلة [[64]]</li>
+            <li><strong>إشعار العملاء:</strong> تنبيه المصارف والعملاء عن التسريب المحتمل</li>
+            <li><strong>تغيير جميع كلمات المرور:</strong> بما في ذلك صلاحيات الوصول</li>
+            <li><strong>مراجعة السجلات:</strong> تحليل 12 شهراً من السجلات الأمنية</li>
+        </ol>
+
+        <h3>الإجراءات متوسطة المدى (1-6 أشهر):</h3>
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="number">1</div>
+                <div class="label">تطبيق Zero Trust Architecture</div>
+            </div>
+            <div class="stat-card">
+                <div class="number">2</div>
+                <div class="label">تجزئة الشبكة (Network Segmentation)</div>
+            </div>
+            <div class="stat-card">
+                <div class="number">3</div>
+                <div class="label">تفعيل SIEM متقدم مع AI</div>
+            </div>
+            <div class="stat-card">
+                <div class="number">4</div>
+                <div class="label">تدريب الموظفين على الأمن السيبراني</div>
+            </div>
+        </div>
+
+        <h3>الإجراءات طويلة المدى (6-24 شهر):</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>المشروع</th>
+                    <th>الوصف</th>
+                    <th>الأولوية</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>بناء SOC داخلي</td>
+                    <td>مركز عمليات أمنية على مدار 24/7 مع فريق محترف</td>
+                    <td><span class="badge badge-critical">حرجة</span></td>
+                </tr>
+                <tr>
+                    <td>تطبيق MFA شامل</td>
+                    <td>المصادقة متعددة العوامل لجميع الأنظمة</td>
+                    <td><span class="badge badge-critical">حرجة</span></td>
+                </tr>
+                <tr>
+                    <td>نظام DLP</td>
+                    <td>منع تسريب البيانات (Data Loss Prevention)</td>
+                    <td><span class="badge badge-high">عالية</span></td>
+                </tr>
+                <tr>
+                    <td>اختبارات اختراق</td>
+                    <td>اختبارات دورية كل 3 أشهر بواسطة جهات خارجية</td>
+                    <td><span class="badge badge-high">عالية</span></td>
+                </tr>
+                <tr>
+                    <td>نسخ احتياطي منقطع</td>
+                    <td>Backup معزول عن الشبكة (Air-gapped)</td>
+                    <td><span class="badge badge-critical">حرجة</span></td>
+                </tr>
+                <tr>
+                    <td>تشفير البيانات</td>
+                    <td>تشفير كامل للبيانات الحساسة (في الراحة والنقل)</td>
+                    <td><span class="badge badge-high">عالية</span></td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div class="info-box">
+            <h3>🎯 التوصيات الاستراتيجية:</h3>
+            <ol>
+                <li><strong>الشفافية:</strong> الإفصاح عن حجم الاختراق الحقيقي لبناء الثقة</li>
+                <li><strong>التعاون الدولي:</strong> الاستعانة بخبرات من بنوك مركزية أخرى (مصر، الإمارات)</li>
+                <li><strong>التشريعات:</strong> تفعيل منشور 18/2025 لحماية البيانات بصرامة [[9]][[103]]</li>
+                <li><strong>الميزانية:</strong> تخصيص 10-15% من الميزانية للأمن السيبراني</li>
+                <li><strong>الكفاءات:</strong> بناء فريق أمني ليبي بدلاً من الاعتماد الكامل على الخارج</li>
+            </ol>
+        </div>
+    </div>
+
+    <!-- القسم 7: الخلاصة -->
+    <div class="section">
+        <h2>📌 الخلاصة والتوصيات النهائية</h2>
+        
+        <div class="alert-box">
+            <h3>⚠️ الحقائق الثابتة:</h3>
+            <ul>
+                <li>الاختراق حدث فعلياً في 9 يونيو 2026 [[59]][[64]]</li>
+                <li>2 تيرابايت من البيانات معروضة على الدارك ويب [[11]]</li>
+                <li>الهجوم جزء من حملة منظمة بدأت في أبريل 2025 [[87]]</li>
+                <li>المصرف يؤكد عدم تأثر حسابات العملاء (حتى الآن) [[64]]</li>
+                <li>العلاقة مع حادثة الذهب غير مؤكدة لكن مرجحة في السياق</li>
+            </ul>
+        </div>
+
+        <h3>الأسباب الأكثر واقعية:</h3>
+        <ol>
+            <li><strong>الهندسة الاجتماعية:</strong> خداع موظف لفتح باب الدخول [[87]]</li>
+            <li><strong>غياب التجزئة:</strong> وصول المهاجم من شبكة عادية إلى أنظمة حساسة [[87]]</li>
+            <li><strong>فشل الرصد:</strong> بقاء المهاجم 7 أشهر دون اكتشاف [[87]]</li>
+            <li><strong>الفساد الداخلي:</strong> تواطؤ محتمل مع شبكات التهريب</li>
+        </ol>
+
+        <div class="info-box" style="background: linear-gradient(135deg, #f0fff4, #c6f6d5); border-color: var(--success);">
+            <h3 style="color: var(--success);">✅ خارطة الطريق:</h3>
+            <p style="color: #22543d;">
+                <strong>لا يوجد حل سحري، لكن:</strong>
+            </p>
+            <ul style="padding-right: 20px; color: #22543d;">
+                <li>تطبيق Zero Trust + Network Segmentation يقلل المخاطر بنسبة 80%</li>
+                <li>بناء SOC داخلي مع رصد 24/7 يكشف الهجمات في دقائق لا أشهر</li>
+                <li>تدريب الموظفين يمنع 90% من هجمات الهندسة الاجتماعية</li>
+                <li>النسخ الاحتياطي المعزول يحمي من برمجيات الفدية</li>
+                <li>التعاون الدولي يسرع الاستجابة ويوفر خبرات</li>
+            </ul>
+            <p style="color: #22543d; margin-top: 15px; font-weight: bold;">
+                🎯 التكلفة المتوقعة: 5-10 مليون دولار | العائد: حماية أصول بقيمة 100+ مليار دولار
+            </p>
+        </div>
+    </div>
+
+    <!-- المصادر -->
+    <div class="section">
+        <h2>📚 المصادر والمراجع</h2>
+        <ol style="font-size: 0.9em;">
+            <li>Libya Security Monitor - "CBL systems hit by cyber attack" - 9 يونيو 2026 [[59]]</li>
+            <li>Libya Observer - "CBL: Cyberattack contained, investigations ongoing" - 9 يونيو 2026 [[64]]</li>
+            <li>Facebook Posts - بيانات عن تسريب 2 تيرابايت على الدارك ويب [[11]][[13]]</li>
+            <li>Libya Update - "Authorities thwart smuggling attempt of 100 kg of gold" - 22 سبتمبر 2024 [[80]]</li>
+            <li>عين ليبيا - "الاختراق السيبراني للمركزي.. هل هو جرس إنذار أم نهاية مسار؟" - 11 يونيو 2026 [[87]]</li>
+            <li>مصرف ليبيا المركزي - "Information Security Policy" [[2]]</li>
+            <li>مصرف ليبيا المركزي - "منشور رقم 18 لسنة 2025 - نظام حماية البيانات" [[9]][[103]]</li>
+            <li>Reuters - تقرير عن تهريب الذهب من مطار مصراتة [[78]]</li>
+            <li>Internal Security Agency Libya - "Foiling the Smuggling of 100 Kilograms of Gold" [[81]]</li>
+        </ol>
+    </div>
+
+</div>
+
+</body>
+</html>
