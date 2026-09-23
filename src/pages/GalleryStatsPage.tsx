@@ -1,19 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Eye, Heart, ShoppingCart, Users, TrendingUp, Calendar,
-  BarChart3, PieChart, Download, RefreshCw, Gem,
-  Filter, ChevronDown, ArrowUp, ArrowDown, MessageSquare,
-  Image as ImageIcon, Video, Clock, Star, Search
+  Eye, Heart, Users, TrendingUp, Calendar,
+  BarChart3, Download, RefreshCw, Gem,
+  Search, MessageSquare, Share2, Phone
 } from 'lucide-react';
-import { supabase, JewelryItem } from '../services/supabase';
+import { JewelryItem, supabase, isSupabaseAvailable } from '../services/supabase';
 
-interface GalleryStats {
-  totalVisitors: number;
-  todayVisitors: number;
-  weekVisitors: number;
-  monthVisitors: number;
+interface MeasurableStats {
   totalViews: number;
-  totalRequests: number;
+  whatsappClicks: number;
+  shareClicks: number;
+  totalFavorites: number;
+  totalContactRequests: number;
   pendingRequests: number;
   completedRequests: number;
 }
@@ -38,56 +36,48 @@ interface ContactRequest {
 }
 
 const GalleryStatsPage: React.FC = () => {
-  const [stats, setStats] = useState<GalleryStats>({
-    totalVisitors: 0,
-    todayVisitors: 0,
-    weekVisitors: 0,
-    monthVisitors: 0,
+  const [stats, setStats] = useState<MeasurableStats>({
     totalViews: 0,
-    totalRequests: 0,
+    whatsappClicks: 0,
+    shareClicks: 0,
+    totalFavorites: 0,
+    totalContactRequests: 0,
     pendingRequests: 0,
     completedRequests: 0,
   });
   const [topItems, setTopItems] = useState<ItemStats[]>([]);
   const [requests, setRequests] = useState<ContactRequest[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'overview' | 'items' | 'requests' | 'trends'>('overview');
-  const [dateRange, setDateRange] = useState<'today' | 'week' | 'month' | 'all'>('week');
+  const [activeTab, setActiveTab] = useState<'overview' | 'items' | 'requests'>('overview');
   const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
     loadStats();
     loadRequests();
-  }, [dateRange]);
+  }, []);
 
   const loadStats = async () => {
     setLoading(true);
 
     try {
-      // Load visitor stats from localStorage
-      const totalVisits = parseInt(localStorage.getItem('gallery_visits') || '0');
-      const lastVisit = localStorage.getItem('last_visit');
-      const today = new Date().toDateString();
-
-      // Calculate date ranges
-      const now = new Date();
-      const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-      const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-
-      // Load items with their stats
       let items: JewelryItem[] = [];
-      try {
-        const { data } = await supabase
-          .from('jewelry_items')
-          .select('*')
-          .order('created_at', { ascending: false });
-        items = data || [];
-      } catch (e) {
+      // Try Supabase first
+      if (isSupabaseAvailable() && supabase) {
+        try {
+          const { data } = await supabase
+            .from('jewelry_items')
+            .select('*')
+            .order('created_at', { ascending: false });
+          items = data || [];
+        } catch (e) {
+          const stored = localStorage.getItem('jewelry_items');
+          if (stored) items = JSON.parse(stored);
+        }
+      } else {
         const stored = localStorage.getItem('jewelry_items');
         if (stored) items = JSON.parse(stored);
       }
 
-      // Calculate item stats
       const itemStats: ItemStats[] = items.map(item => {
         const views = parseInt(localStorage.getItem(`view_${item.item_code}`) || '0');
         const favorites = getFavoriteCount(item.item_code);
@@ -103,47 +93,21 @@ const GalleryStatsPage: React.FC = () => {
         };
       });
 
-      // Sort by views
       itemStats.sort((a, b) => b.views - a.views);
       setTopItems(itemStats.slice(0, 20));
 
-      // Load contact requests
       const contactRequests = JSON.parse(localStorage.getItem('contact_requests') || '[]');
-
-      // Calculate stats
-      let todayCount = 0;
-      let weekCount = 0;
-      let monthCount = 0;
-
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key?.startsWith('gallery_visit_')) {
-          const timestamp = localStorage.getItem(key);
-          if (timestamp) {
-            const date = new Date(timestamp);
-            if (date.toDateString() === today) todayCount++;
-            if (date >= weekAgo) weekCount++;
-            if (date >= monthAgo) monthCount++;
-          }
-        }
-      }
-
-      // If no granular data, estimate
-      if (todayCount === 0 && totalVisits > 0) {
-        todayCount = Math.ceil(totalVisits / 30);
-        weekCount = Math.ceil(totalVisits / 4);
-        monthCount = totalVisits;
-      }
-
+      const whatsappClicks = parseInt(localStorage.getItem('whatsapp_clicks') || '0');
+      const shareClicks = parseInt(localStorage.getItem('share_clicks') || '0');
       const totalViews = itemStats.reduce((sum, item) => sum + item.views, 0);
+      const totalFavorites = itemStats.reduce((sum, item) => sum + item.favorites, 0);
 
       setStats({
-        totalVisitors: totalVisits,
-        todayVisitors: todayCount,
-        weekVisitors: weekCount,
-        monthVisitors: monthCount,
         totalViews,
-        totalRequests: contactRequests.length,
+        whatsappClicks,
+        shareClicks,
+        totalFavorites,
+        totalContactRequests: contactRequests.length,
         pendingRequests: contactRequests.filter((r: ContactRequest) => r.status === 'pending').length,
         completedRequests: contactRequests.filter((r: ContactRequest) => r.status === 'completed').length,
       });
@@ -178,7 +142,6 @@ const GalleryStatsPage: React.FC = () => {
     localStorage.setItem('contact_requests', JSON.stringify(updated));
     setRequests(updated);
 
-    // Update stats
     setStats(prev => ({
       ...prev,
       pendingRequests: updated.filter((r: ContactRequest) => r.status === 'pending').length,
@@ -235,7 +198,6 @@ const GalleryStatsPage: React.FC = () => {
 
   return (
     <div className="max-w-7xl mx-auto">
-      {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
         <div className="flex items-center gap-4">
           <div className="w-14 h-14 bg-gradient-to-br from-blue-600 to-blue-700 rounded-2xl flex items-center justify-center shadow-xl">
@@ -243,20 +205,10 @@ const GalleryStatsPage: React.FC = () => {
           </div>
           <div>
             <h1 className="text-3xl font-bold text-yellow-400">إحصائيات المعرض</h1>
-            <p className="text-gray-400">تحليل أداء المعرض والقطع الأكثر طلباً</p>
+            <p className="text-gray-400">بيانات قابلة للقياس فعلياً</p>
           </div>
         </div>
         <div className="flex gap-3">
-          <select
-            value={dateRange}
-            onChange={(e) => setDateRange(e.target.value as any)}
-            className="bg-gray-800 border border-gray-700 text-white px-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500"
-          >
-            <option value="today">اليوم</option>
-            <option value="week">هذا الأسبوع</option>
-            <option value="month">هذا الشهر</option>
-            <option value="all">كل الوقت</option>
-          </select>
           <button
             onClick={exportStats}
             className="bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded-lg flex items-center gap-2"
@@ -274,21 +226,7 @@ const GalleryStatsPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <div className="bg-gradient-to-br from-blue-600 to-blue-700 rounded-2xl p-5 shadow-xl">
-          <div className="flex items-center justify-between mb-3">
-            <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
-              <Users className="w-6 h-6 text-white" />
-            </div>
-            <span className="text-green-400 text-sm flex items-center gap-1">
-              <ArrowUp className="w-4 h-4" /> +12%
-            </span>
-          </div>
-          <p className="text-3xl font-bold text-white">{stats.totalVisitors}</p>
-          <p className="text-blue-200 text-sm">إجمالي الزوار</p>
-        </div>
-
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
         <div className="bg-gradient-to-br from-yellow-600 to-yellow-700 rounded-2xl p-5 shadow-xl">
           <div className="flex items-center justify-between mb-3">
             <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
@@ -296,7 +234,27 @@ const GalleryStatsPage: React.FC = () => {
             </div>
           </div>
           <p className="text-3xl font-bold text-white">{stats.totalViews}</p>
-          <p className="text-yellow-200 text-sm">إجمالي المشاهدات</p>
+          <p className="text-yellow-200 text-sm">مشاهدات الصور</p>
+        </div>
+
+        <div className="bg-gradient-to-br from-green-600 to-green-700 rounded-2xl p-5 shadow-xl">
+          <div className="flex items-center justify-between mb-3">
+            <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
+              <Phone className="w-6 h-6 text-white" />
+            </div>
+          </div>
+          <p className="text-3xl font-bold text-white">{stats.whatsappClicks}</p>
+          <p className="text-green-200 text-sm">ضغطات واتساب</p>
+        </div>
+
+        <div className="bg-gradient-to-br from-blue-600 to-blue-700 rounded-2xl p-5 shadow-xl">
+          <div className="flex items-center justify-between mb-3">
+            <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
+              <Share2 className="w-6 h-6 text-white" />
+            </div>
+          </div>
+          <p className="text-3xl font-bold text-white">{stats.shareClicks}</p>
+          <p className="text-blue-200 text-sm">ضغطات مشاركة</p>
         </div>
 
         <div className="bg-gradient-to-br from-red-600 to-red-700 rounded-2xl p-5 shadow-xl">
@@ -305,57 +263,36 @@ const GalleryStatsPage: React.FC = () => {
               <Heart className="w-6 h-6 text-white" />
             </div>
           </div>
-          <p className="text-3xl font-bold text-white">
-            {topItems.reduce((sum, item) => sum + item.favorites, 0)}
-          </p>
+          <p className="text-3xl font-bold text-white">{stats.totalFavorites}</p>
           <p className="text-red-200 text-sm">المفضلة</p>
         </div>
 
-        <div className="bg-gradient-to-br from-green-600 to-green-700 rounded-2xl p-5 shadow-xl">
+        <div className="bg-gradient-to-br from-purple-600 to-purple-700 rounded-2xl p-5 shadow-xl">
           <div className="flex items-center justify-between mb-3">
             <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
               <MessageSquare className="w-6 h-6 text-white" />
             </div>
             {stats.pendingRequests > 0 && (
               <span className="bg-white text-red-600 px-2 py-1 rounded-full text-xs font-bold">
-                {stats.pendingRequests} جديد
+                {stats.pendingRequests}
               </span>
             )}
           </div>
-          <p className="text-3xl font-bold text-white">{stats.totalRequests}</p>
-          <p className="text-green-200 text-sm">طلبات التواصل</p>
+          <p className="text-3xl font-bold text-white">{stats.totalContactRequests}</p>
+          <p className="text-purple-200 text-sm">طلبات التواصل</p>
+        </div>
+
+        <div className="bg-gradient-to-br from-emerald-600 to-emerald-700 rounded-2xl p-5 shadow-xl">
+          <div className="flex items-center justify-between mb-3">
+            <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
+              <TrendingUp className="w-6 h-6 text-white" />
+            </div>
+          </div>
+          <p className="text-3xl font-bold text-white">{stats.completedRequests}</p>
+          <p className="text-emerald-200 text-sm">تم التواصل</p>
         </div>
       </div>
 
-      {/* Date Range Stats */}
-      <div className="grid grid-cols-3 gap-4 mb-6">
-        <div className="bg-gray-800 rounded-xl p-4 border border-gray-700">
-          <div className="flex items-center gap-2 text-gray-400 mb-2">
-            <Calendar className="w-4 h-4" />
-            <span className="text-sm">اليوم</span>
-          </div>
-          <p className="text-2xl font-bold text-white">{stats.todayVisitors}</p>
-          <p className="text-gray-500 text-sm">زائر</p>
-        </div>
-        <div className="bg-gray-800 rounded-xl p-4 border border-gray-700">
-          <div className="flex items-center gap-2 text-gray-400 mb-2">
-            <Clock className="w-4 h-4" />
-            <span className="text-sm">هذا الأسبوع</span>
-          </div>
-          <p className="text-2xl font-bold text-white">{stats.weekVisitors}</p>
-          <p className="text-gray-500 text-sm">زائر</p>
-        </div>
-        <div className="bg-gray-800 rounded-xl p-4 border border-gray-700">
-          <div className="flex items-center gap-2 text-gray-400 mb-2">
-            <TrendingUp className="w-4 h-4" />
-            <span className="text-sm">هذا الشهر</span>
-          </div>
-          <p className="text-2xl font-bold text-white">{stats.monthVisitors}</p>
-          <p className="text-gray-500 text-sm">زائر</p>
-        </div>
-      </div>
-
-      {/* Tabs */}
       <div className="flex gap-2 mb-6 bg-gray-800 p-2 rounded-xl overflow-x-auto">
         <button
           onClick={() => setActiveTab('overview')}
@@ -384,24 +321,14 @@ const GalleryStatsPage: React.FC = () => {
             <span className="bg-red-500 text-white px-2 py-0.5 rounded-full text-xs">{stats.pendingRequests}</span>
           )}
         </button>
-        <button
-          onClick={() => setActiveTab('trends')}
-          className={`px-4 py-2 rounded-lg font-medium whitespace-nowrap transition-all ${
-            activeTab === 'trends' ? 'bg-yellow-600 text-white' : 'text-gray-400 hover:text-white'
-          }`}
-        >
-          الاتجاهات
-        </button>
       </div>
 
-      {/* Tab Content */}
       {activeTab === 'overview' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Top 5 Items */}
           <div className="bg-gray-800 rounded-2xl border border-gray-700 overflow-hidden">
-            <div className="p-4 border-b border-gray-700 flex items-center justify-between">
+            <div className="p-4 border-b border-gray-700">
               <h3 className="font-bold text-white flex items-center gap-2">
-                <Star className="w-5 h-5 text-yellow-500" />
+                <Gem className="w-5 h-5 text-yellow-500" />
                 القطع الأكثر مشاهدة
               </h3>
             </div>
@@ -446,9 +373,8 @@ const GalleryStatsPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Recent Requests */}
           <div className="bg-gray-800 rounded-2xl border border-gray-700 overflow-hidden">
-            <div className="p-4 border-b border-gray-700 flex items-center justify-between">
+            <div className="p-4 border-b border-gray-700">
               <h3 className="font-bold text-white flex items-center gap-2">
                 <MessageSquare className="w-5 h-5 text-green-500" />
                 آخر الطلبات
@@ -476,9 +402,6 @@ const GalleryStatsPage: React.FC = () => {
                   <p className="text-gray-400 text-sm">
                     قطعة: <span className="text-yellow-400">{request.item_name || request.item_code}</span>
                   </p>
-                  {request.message && (
-                    <p className="text-gray-500 text-sm mt-1 truncate">{request.message}</p>
-                  )}
                   <p className="text-gray-600 text-xs mt-2">{formatDate(request.timestamp)}</p>
                 </div>
               ))}
@@ -495,7 +418,6 @@ const GalleryStatsPage: React.FC = () => {
 
       {activeTab === 'items' && (
         <div className="bg-gray-800 rounded-2xl border border-gray-700 overflow-hidden">
-          {/* Search */}
           <div className="p-4 border-b border-gray-700">
             <div className="relative">
               <Search className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
@@ -509,7 +431,6 @@ const GalleryStatsPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Table */}
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead className="bg-gray-900">
@@ -578,7 +499,6 @@ const GalleryStatsPage: React.FC = () => {
 
       {activeTab === 'requests' && (
         <div className="bg-gray-800 rounded-2xl border border-gray-700 overflow-hidden">
-          {/* Search */}
           <div className="p-4 border-b border-gray-700">
             <div className="relative">
               <Search className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
@@ -592,7 +512,6 @@ const GalleryStatsPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Requests List */}
           <div className="divide-y divide-gray-700">
             {filteredRequests.map((request) => (
               <div key={request.id} className="p-4 hover:bg-gray-700/50 transition-all">
@@ -624,8 +543,8 @@ const GalleryStatsPage: React.FC = () => {
                         {request.message}
                       </p>
                     )}
-                    <p className="text-gray-600 text-xs mt-2 flex items-center gap-1">
-                      <Clock className="w-3 h-3" /> {formatDate(request.timestamp)}
+                    <p className="text-gray-600 text-xs mt-2">
+                      {formatDate(request.timestamp)}
                     </p>
                   </div>
                   <div className="flex gap-2">
@@ -675,95 +594,8 @@ const GalleryStatsPage: React.FC = () => {
           </div>
         </div>
       )}
-
-      {activeTab === 'trends' && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Category Distribution */}
-          <div className="bg-gray-800 rounded-2xl border border-gray-700 p-6">
-            <h3 className="font-bold text-white mb-4 flex items-center gap-2">
-              <PieChart className="w-5 h-5 text-yellow-500" />
-              توزيع الأصناف
-            </h3>
-            <div className="space-y-4">
-              {Object.entries(
-                topItems.reduce((acc, item) => {
-                  const cat = item.item.category || 'أخرى';
-                  acc[cat] = (acc[cat] || 0) + item.views;
-                  return acc;
-                }, {} as Record<string, number>)
-              )
-                .sort(([, a], [, b]) => b - a)
-                .slice(0, 6)
-                .map(([category, views], index) => {
-                  const total = topItems.reduce((sum, item) => sum + item.views, 0) || 1;
-                  const percentage = ((views / total) * 100).toFixed(1);
-                  const colors = ['bg-yellow-500', 'bg-blue-500', 'bg-green-500', 'bg-red-500', 'bg-purple-500', 'bg-pink-500'];
-                  return (
-                    <div key={category}>
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-white">{category}</span>
-                        <span className="text-gray-400 text-sm">{views} مشاهدة ({percentage}%)</span>
-                      </div>
-                      <div className="h-3 bg-gray-700 rounded-full overflow-hidden">
-                        <div
-                          className={`h-full ${colors[index % colors.length]} transition-all`}
-                          style={{ width: `${percentage}%` }}
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
-            </div>
-          </div>
-
-          {/* Karat Distribution */}
-          <div className="bg-gray-800 rounded-2xl border border-gray-700 p-6">
-            <h3 className="font-bold text-white mb-4 flex items-center gap-2">
-              <Gem className="w-5 h-5 text-yellow-500" />
-              توزيع العيارات
-            </h3>
-            <div className="space-y-4">
-              {Object.entries(
-                topItems.reduce((acc, item) => {
-                  const karat = `عيار ${item.item.karat}` || 'غير محدد';
-                  acc[karat] = (acc[karat] || 0) + item.views;
-                  return acc;
-                }, {} as Record<string, number>)
-              )
-                .sort(([, a], [, b]) => b - a)
-                .slice(0, 4)
-                .map(([karat, views], index) => {
-                  const total = topItems.reduce((sum, item) => sum + item.views, 0) || 1;
-                  const percentage = ((views / total) * 100).toFixed(1);
-                  const colors = ['bg-yellow-400', 'bg-yellow-600', 'bg-yellow-700', 'bg-gray-400'];
-                  return (
-                    <div key={karat}>
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-white">{karat}</span>
-                        <span className="text-gray-400 text-sm">{views} مشاهدة ({percentage}%)</span>
-                      </div>
-                      <div className="h-3 bg-gray-700 rounded-full overflow-hidden">
-                        <div
-                          className={`h-full ${colors[index % colors.length]} transition-all`}
-                          style={{ width: `${percentage}%` }}
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
-
-// Add Phone icon to lucide imports if not present
-const Phone: React.FC<{ className?: string }> = ({ className }) => (
-  <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
-  </svg>
-);
 
 export default GalleryStatsPage;

@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
+﻿import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { QrCode, Search, ShoppingCart, Package, DollarSign, RefreshCw, Crown, Gem, Coins, Edit3, Save } from 'lucide-react';
+import { QrCode, Search, ShoppingCart, Package, DollarSign, RefreshCw, Crown, Gem, Coins, Edit3, Save, FileText, ClipboardList, ShoppingBag, BarChart3, Users, Wallet, ArrowLeft, Clock, TrendingUp, Eye } from 'lucide-react';
 import { jewelryApi } from '../services/supabase';
 import { formatNumber, formatCurrency } from '../services/supabase';
 import { getSystemSettings, saveSystemSettings } from '../services/settings';
@@ -62,8 +62,13 @@ const HomePage: React.FC = () => {
   const [manualGold21k, setManualGold21k] = useState('');
   const [manualGold18k, setManualGold18k] = useState('');
   const [manualExchangeRate, setManualExchangeRate] = useState('');
+  const [manualParallelUsd, setManualParallelUsd] = useState('');
   const [isEditingPrices, setIsEditingPrices] = useState(false);
   const [isEditingRate, setIsEditingRate] = useState(false);
+  const [isEditingParallel, setIsEditingParallel] = useState(false);
+  const [recentReceipts, setRecentReceipts] = useState<any[]>([]);
+  const [recentInvoices, setRecentInvoices] = useState<any[]>([]);
+  const [recentOrders, setRecentOrders] = useState<any[]>([]);
 
   useEffect(() => {
     loadData();
@@ -95,6 +100,7 @@ const HomePage: React.FC = () => {
       setManualGold21k(gold.price21k.toString());
       setManualGold18k(gold.price18k.toString());
       setManualExchangeRate(rate.usdToLyd.toString());
+      setManualParallelUsd(settings.exchangeRate.parallelUsd?.toString() || '');
 
       // Fetch items from localStorage first (more reliable)
       let items: any[] = [];
@@ -151,6 +157,26 @@ const HomePage: React.FC = () => {
         totalPieces: totalPieces,
         totalWeightAll: totalWeightAll,
       });
+
+      // Load recent receipts
+      try {
+        const receipts = JSON.parse(localStorage.getItem('gold_receipts') || '[]');
+        setRecentReceipts(receipts.slice(-5).reverse());
+      } catch { setRecentReceipts([]); }
+
+      // Load recent invoices
+      try {
+        const invoices = JSON.parse(localStorage.getItem('gold_invoices') || '[]');
+        setRecentInvoices(invoices.slice(-5).reverse());
+      } catch { setRecentInvoices([]); }
+
+      // Load recent orders (try both keys)
+      try {
+        const orders1 = JSON.parse(localStorage.getItem('orders') || '[]');
+        const orders2 = JSON.parse(localStorage.getItem('order_data') || '[]');
+        const allOrders = [...orders1, ...orders2].sort((a: any, b: any) => new Date(b.created_at || b.date || 0).getTime() - new Date(a.created_at || a.date || 0).getTime());
+        setRecentOrders(allOrders.slice(0, 5));
+      } catch { setRecentOrders([]); }
     } catch (error) {
       console.error('Error loading data:', error);
     }
@@ -165,6 +191,7 @@ const HomePage: React.FC = () => {
     saveSystemSettings({
       goldPrices: {
         gold24k: newGold24k,
+        gold22k: getSystemSettings().goldPrices.gold22k,
         gold21k: newGold21k,
         gold18k: newGold18k,
         silver: getSystemSettings().goldPrices.silver,
@@ -184,9 +211,11 @@ const HomePage: React.FC = () => {
 
   const handleSaveExchangeRate = () => {
     const newRate = parseFloat(manualExchangeRate) || 0;
+    const settings = getSystemSettings();
 
     saveSystemSettings({
       exchangeRate: {
+        ...settings.exchangeRate,
         usdToLyd: newRate,
         lastUpdated: new Date().toISOString(),
         isCustom: true,
@@ -200,42 +229,38 @@ const HomePage: React.FC = () => {
     setIsEditingRate(false);
   };
 
+  const handleSaveParallelUsd = () => {
+    const newPrice = parseFloat(manualParallelUsd) || 0;
+    const settings = getSystemSettings();
+
+    saveSystemSettings({
+      exchangeRate: {
+        ...settings.exchangeRate,
+        parallelUsd: newPrice,
+        lastUpdated: new Date().toISOString(),
+        isCustom: true,
+      }
+    });
+
+    setIsEditingParallel(false);
+  };
+
   const menuItems = [
-    {
-      path: '/add',
-      icon: QrCode,
-      title: 'التكويد',
-      description: 'إضافة قطع جديدة',
-      color: 'from-yellow-600 to-yellow-500',
-    },
-    {
-      path: '/sales',
-      icon: ShoppingCart,
-      title: 'البيع',
-      description: 'إنشاء فاتورة جديدة',
-      color: 'from-green-600 to-green-500',
-    },
-    {
-      path: '/invoices',
-      icon: Package,
-      title: 'الفواتير',
-      description: 'عرض الفواتير',
-      color: 'from-blue-600 to-blue-500',
-    },
-    {
-      path: '/search',
-      icon: Search,
-      title: 'البحث',
-      description: 'البحث والتعديل',
-      color: 'from-purple-600 to-purple-500',
-    },
+    { path: '/add', icon: QrCode, title: 'التكويد', description: 'إضافة قطع جديدة', color: 'from-yellow-600 to-yellow-500' },
+    { path: '/sales', icon: ShoppingCart, title: 'البيع', description: 'إنشاء فاتورة جديدة', color: 'from-green-600 to-green-500' },
+    { path: '/invoices-hub', icon: FileText, title: 'الفواتير', description: 'عرض جميع الفواتير', color: 'from-blue-600 to-blue-500' },
+    { path: '/orders', icon: ShoppingBag, title: 'الطلبيات', description: 'إدارة الطلبيات', color: 'from-purple-600 to-purple-500' },
+    { path: '/gold-orders', icon: Coins, title: 'التصنيع', description: 'فاتورة التصنيع', color: 'from-amber-600 to-amber-500' },
+    { path: '/search', icon: Search, title: 'البحث', description: 'البحث والتعديل', color: 'from-indigo-600 to-indigo-500' },
+    { path: '/items', icon: Package, title: 'المخزن', description: 'عرض المخزون', color: 'from-cyan-600 to-cyan-500' },
+    { path: '/dashboard', icon: BarChart3, title: 'التحليلات', description: 'لوحة التحكم الذكية', color: 'from-rose-600 to-rose-500' },
   ];
 
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="text-center mb-8">
-        <img src="/logo.png" alt="مجوهرات الحمروني" className="w-24 h-24 mx-auto mb-3 rounded-xl shadow-lg" />
+        <img src="/logo1.png" alt="مجوهرات الحمروني" className="w-24 h-24 mx-auto mb-3 rounded-xl shadow-lg" />
         <h1 className="text-3xl font-bold text-yellow-400">مجوهرات الحمروني</h1>
         <p className="text-gray-400">أجود المجوهرات وأفضل الأسعار</p>
       </div>
@@ -276,7 +301,7 @@ const HomePage: React.FC = () => {
             <div className="flex items-center gap-2">
               <label className="text-yellow-300 text-sm w-20">عيار 24:</label>
               <input
-                type="number"
+                type="text" inputMode="decimal"
                 step="0.01"
                 value={manualGold24k}
                 onChange={(e) => setManualGold24k(e.target.value)}
@@ -288,7 +313,7 @@ const HomePage: React.FC = () => {
             <div className="flex items-center gap-2">
               <label className="text-yellow-300 text-sm w-20">عيار 21:</label>
               <input
-                type="number"
+                type="text" inputMode="decimal"
                 step="0.01"
                 value={manualGold21k}
                 onChange={(e) => setManualGold21k(e.target.value)}
@@ -300,7 +325,7 @@ const HomePage: React.FC = () => {
             <div className="flex items-center gap-2">
               <label className="text-yellow-300 text-sm w-20">عيار 18:</label>
               <input
-                type="number"
+                type="text" inputMode="decimal"
                 step="0.01"
                 value={manualGold18k}
                 onChange={(e) => setManualGold18k(e.target.value)}
@@ -327,15 +352,15 @@ const HomePage: React.FC = () => {
           <div className="grid grid-cols-3 gap-3">
             <div className="bg-yellow-600/20 rounded-xl p-3 text-center">
               <p className="text-yellow-300 text-xs mb-1">عيار 24</p>
-              <p className="text-2xl font-bold text-yellow-400">{goldPrice.price24k > 0 ? goldPrice.price24k.toFixed(2) : '---'} <span className="text-sm">د.ل/غ</span></p>
+              <p className="text-2xl font-bold text-yellow-400" dir="ltr" lang="en">{goldPrice.price24k > 0 ? goldPrice.price24k.toLocaleString('en-US', {minimumFractionDigits:2,maximumFractionDigits:2}) : '---'} <span className="text-sm">د.ل/غ</span></p>
             </div>
             <div className="bg-yellow-600/20 rounded-xl p-3 text-center">
               <p className="text-yellow-300 text-xs mb-1">عيار 21</p>
-              <p className="text-2xl font-bold text-yellow-400">{goldPrice.price21k > 0 ? goldPrice.price21k.toFixed(2) : '---'} <span className="text-sm">د.ل/غ</span></p>
+              <p className="text-2xl font-bold text-yellow-400" dir="ltr" lang="en">{goldPrice.price21k > 0 ? goldPrice.price21k.toLocaleString('en-US', {minimumFractionDigits:2,maximumFractionDigits:2}) : '---'} <span className="text-sm">د.ل/غ</span></p>
             </div>
             <div className="bg-yellow-600/20 rounded-xl p-3 text-center">
               <p className="text-yellow-300 text-xs mb-1">عيار 18</p>
-              <p className="text-2xl font-bold text-yellow-400">{goldPrice.price18k > 0 ? goldPrice.price18k.toFixed(2) : '---'} <span className="text-sm">د.ل/غ</span></p>
+              <p className="text-2xl font-bold text-yellow-400" dir="ltr" lang="en">{goldPrice.price18k > 0 ? goldPrice.price18k.toLocaleString('en-US', {minimumFractionDigits:2,maximumFractionDigits:2}) : '---'} <span className="text-sm">د.ل/غ</span></p>
             </div>
           </div>
         )}
@@ -372,7 +397,7 @@ const HomePage: React.FC = () => {
             <div className="flex items-center gap-2">
               <label className="text-blue-300 text-sm w-28">1 دولار أمريكي =</label>
               <input
-                type="number"
+                type="text" inputMode="decimal"
                 step="0.001"
                 value={manualExchangeRate}
                 onChange={(e) => setManualExchangeRate(e.target.value)}
@@ -397,11 +422,79 @@ const HomePage: React.FC = () => {
           <div className="grid grid-cols-2 gap-3">
             <div className="bg-blue-600/20 rounded-xl p-3 text-center">
               <p className="text-blue-300 text-xs mb-1">1 دولار أمريكي =</p>
-              <p className="text-2xl font-bold text-blue-400">{exchangeRate.usdToLyd.toFixed(3) || '---'} <span className="text-sm">د.ل</span></p>
+              <p className="text-2xl font-bold text-blue-400" dir="ltr" lang="en">{exchangeRate.usdToLyd.toLocaleString('en-US', {minimumFractionDigits:3,maximumFractionDigits:3}) || '---'} <span className="text-sm">د.ل</span></p>
             </div>
             <div className="bg-blue-600/20 rounded-xl p-3 text-center">
               <p className="text-blue-300 text-xs mb-1">1 يورو =</p>
-              <p className="text-2xl font-bold text-blue-400">{(exchangeRate ? (exchangeRate.usdToLyd * 1.08).toFixed(3) : '---')} <span className="text-sm">د.ل</span></p>
+              <p className="text-2xl font-bold text-blue-400" dir="ltr" lang="en">{(exchangeRate ? (exchangeRate.usdToLyd * 1.08).toLocaleString('en-US', {minimumFractionDigits:3,maximumFractionDigits:3}) : '---')} <span className="text-sm">د.ل</span></p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* سعر الدولار الموازي */}
+      <div className="bg-gradient-to-br from-green-900/50 to-green-800/30 rounded-2xl p-5 border border-green-600/30">
+        <div className="flex items-center gap-2 text-green-400 mb-4">
+          <DollarSign className="w-5 h-5" />
+          <span className="font-bold">سعر الدولار - السوق الموازية</span>
+          <span className="text-xs bg-green-600/30 text-green-300 px-2 py-1 rounded-full">يدوياً</span>
+          <div className="flex items-center gap-2 mr-auto">
+            {!isEditingParallel ? (
+              <button
+                onClick={() => setIsEditingParallel(true)}
+                className="text-green-400 hover:text-green-300 p-1"
+                title="تعديل السعر"
+              >
+                <Edit3 className="w-4 h-4" />
+              </button>
+            ) : (
+              <button
+                onClick={handleSaveParallelUsd}
+                className="text-green-400 hover:text-green-300 p-1"
+                title="حفظ"
+              >
+                <Save className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {isEditingParallel ? (
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <label className="text-green-300 text-sm w-28">1 دولار أمريكي =</label>
+              <input
+                type="text" inputMode="decimal"
+                step="0.001"
+                value={manualParallelUsd}
+                onChange={(e) => setManualParallelUsd(e.target.value)}
+                className="flex-1 bg-green-600/20 border border-green-600/30 rounded-lg px-3 py-2 text-green-400 focus:outline-none focus:ring-2 focus:ring-green-500"
+                placeholder="سعر الدولار الموازي"
+              />
+              <span className="text-gray-400 text-sm">د.ل</span>
+            </div>
+            <div className="flex justify-end gap-2 mt-2">
+              <button
+                onClick={() => {
+                  setManualParallelUsd(getSystemSettings().exchangeRate.parallelUsd?.toString() || '');
+                  setIsEditingParallel(false);
+                }}
+                className="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded-lg text-sm"
+              >
+                إلغاء
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-3">
+            <div className="bg-green-600/20 rounded-xl p-3 text-center">
+              <p className="text-green-300 text-xs mb-1">1 دولار أمريكي (السوق الموازية) =</p>
+              <p className="text-2xl font-bold text-green-400" dir="ltr" lang="en">{getSystemSettings().exchangeRate.parallelUsd > 0 ? getSystemSettings().exchangeRate.parallelUsd.toLocaleString('en-US', {minimumFractionDigits:3,maximumFractionDigits:3}) : '---'} <span className="text-sm">د.ل</span></p>
+              {getSystemSettings().exchangeRate.parallelUsd > 0 && getSystemSettings().exchangeRate.usdToLyd > 0 && (
+                <p className="text-xs text-gray-400 mt-1">
+                  الفرق: {((getSystemSettings().exchangeRate.parallelUsd - getSystemSettings().exchangeRate.usdToLyd) / getSystemSettings().exchangeRate.usdToLyd * 100).toFixed(1)}% عن الرسمي
+                </p>
+              )}
             </div>
           </div>
         )}
@@ -490,6 +583,95 @@ const HomePage: React.FC = () => {
             <p className="text-gray-400 text-sm mt-1">
               ≈ {formatNumber(stats.totalValue / exchangeRate.usdToLyd)} دولار
             </p>
+          )}
+        </div>
+      </div>
+
+      {/* آخر الإيصالات والفواتير والطلبيات */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* آخر الإيصالات */}
+        <div className="bg-gray-800 rounded-2xl p-4 border border-gray-700">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2 text-green-400">
+              <ClipboardList className="w-4 h-4" />
+              <span className="font-bold text-sm">آخر الإيصالات</span>
+            </div>
+            <Link to="/invoices-hub" className="text-green-400 hover:text-green-300 text-xs flex items-center gap-1">
+              الكل <ArrowLeft className="w-3 h-3" />
+            </Link>
+          </div>
+          {recentReceipts.length === 0 ? (
+            <p className="text-gray-500 text-center text-sm py-4">لا توجد إيصالات</p>
+          ) : (
+            <div className="space-y-2">
+              {recentReceipts.map((r: any) => (
+                <div key={r.id} className="bg-gray-700/50 rounded-lg p-2 flex justify-between items-center">
+                  <div>
+                    <p className="text-white text-xs font-bold">{r.customer_name}</p>
+                    <p className="text-gray-400 text-[10px]">{r.receipt_number}</p>
+                  </div>
+                  <p className="text-green-400 text-xs font-bold">{formatNumber(r.total_weight || 0)} ج</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* آخر فواتير التصنيع */}
+        <div className="bg-gray-800 rounded-2xl p-4 border border-gray-700">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2 text-blue-400">
+              <FileText className="w-4 h-4" />
+              <span className="font-bold text-sm">فواتير التصنيع</span>
+            </div>
+            <Link to="/gold-orders" className="text-blue-400 hover:text-blue-300 text-xs flex items-center gap-1">
+              الكل <ArrowLeft className="w-3 h-3" />
+            </Link>
+          </div>
+          {recentInvoices.length === 0 ? (
+            <p className="text-gray-500 text-center text-sm py-4">لا توجد فواتير</p>
+          ) : (
+            <div className="space-y-2">
+              {recentInvoices.map((inv: any) => (
+                <div key={inv.id} className="bg-gray-700/50 rounded-lg p-2 flex justify-between items-center">
+                  <div>
+                    <p className="text-white text-xs font-bold">{inv.customer_name}</p>
+                    <p className="text-gray-400 text-[10px]">{inv.invoice_number}</p>
+                  </div>
+                  <p className="text-blue-400 text-xs font-bold">{formatNumber(inv.total_amount || 0)} د.ل</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* آخر الطلبيات */}
+        <div className="bg-gray-800 rounded-2xl p-4 border border-gray-700">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2 text-purple-400">
+              <ShoppingBag className="w-4 h-4" />
+              <span className="font-bold text-sm">الطلبيات</span>
+            </div>
+            <Link to="/orders" className="text-purple-400 hover:text-purple-300 text-xs flex items-center gap-1">
+              الكل <ArrowLeft className="w-3 h-3" />
+            </Link>
+          </div>
+          {recentOrders.length === 0 ? (
+            <p className="text-gray-500 text-center text-sm py-4">لا توجد طلبيات</p>
+          ) : (
+            <div className="space-y-2">
+              {recentOrders.map((o: any) => (
+                <div key={o.id} className="bg-gray-700/50 rounded-lg p-2 flex justify-between items-center">
+                  <div>
+                    <p className="text-white text-xs font-bold">{o.customer_name || o.client_name || 'طلبية'}</p>
+                    <p className="text-gray-400 text-[10px]">{o.order_number || o.receipt_number || ''}</p>
+                  </div>
+                  <span className={`text-xs px-2 py-0.5 rounded-full ${(o.status === 'completed' || o.status === 'مكتمل') ? 'bg-green-600/30 text-green-400' : (o.status === 'cancelled' || o.status === 'ملغي') ? 'bg-red-600/30 text-red-400' : 'bg-yellow-600/30 text-yellow-400'}`}>
+                    {(o.status === 'completed' || o.status === 'مكتمل') ? 'مكتملة' : (o.status === 'cancelled' || o.status === 'ملغي') ? 'ملغاة' : 'قيد التنفيذ'}
+                  </span>
+                </div>
+              ))}
+            </div>
           )}
         </div>
       </div>

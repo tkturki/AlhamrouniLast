@@ -188,7 +188,7 @@ const MobileDashboard: React.FC = () => {
                   <div>
                     <p className="font-bold text-yellow-400">{invoice.invoice_number}</p>
                     <p className="text-sm text-gray-400">
-                      {new Date(invoice.created_at).toLocaleDateString('ar-LY')}
+                      {new Date(invoice.created_at).toLocaleDateString('en-CA')}
                     </p>
                   </div>
                 </div>

@@ -1,6 +1,10 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { Plus, Edit2, Trash2, Search, X, Printer, ShoppingBag, Calendar, DollarSign, Filter, ChevronDown } from 'lucide-react';
 import { getOrders, addOrder, updateOrder, deleteOrder, searchOrders, getOrderById, Order, OrderStatus, printOrderReceipt } from '../services/orders';
+import { getSystemSettings } from '../services/settings';
+import { formatNumber } from '../services/supabase';
+
+const METAL_TYPES = ['ذهب صافي', 'ذهب عيار 24', 'ذهب عيار 21', 'ذهب عيار 18', 'فضة'];
 
 const OrdersPage: React.FC = () => {
   const [orders, setOrders] = useState<Order[]>([]);
@@ -9,10 +13,36 @@ const OrdersPage: React.FC = () => {
   const [editingOrder, setEditingOrder] = useState<Order | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
   const [filterStatus, setFilterStatus] = useState<string>('all');
+  const [goldPrices, setGoldPrices] = useState<{ gold24k: number; gold21k: number; gold18k: number; silver: number }>({ gold24k: 0, gold21k: 0, gold18k: 0, silver: 0 });
+  const [formWeight, setFormWeight] = useState('');
+  const [formMetalType, setFormMetalType] = useState('ذهب صافي');
 
   useEffect(() => {
     loadOrders();
+    loadGoldPrices();
   }, []);
+
+  const loadGoldPrices = () => {
+    const settings = getSystemSettings();
+    setGoldPrices(settings.goldPrices);
+  };
+
+  const getGoldPricePerGram = (karat: string) => {
+    switch (karat) {
+      case '24': return goldPrices.gold24k;
+      case '21': return goldPrices.gold21k;
+      case '18': return goldPrices.gold18k;
+      default: return goldPrices.gold21k;
+    }
+  };
+
+  const getMetalTypePrice = (metalType: string) => {
+    if (metalType.includes('24')) return goldPrices.gold24k;
+    if (metalType.includes('21')) return goldPrices.gold21k;
+    if (metalType.includes('18')) return goldPrices.gold18k;
+    if (metalType.includes('فضة')) return goldPrices.silver;
+    return goldPrices.gold21k;
+  };
 
   const loadOrders = () => {
     const data = getOrders();
@@ -49,6 +79,8 @@ const OrdersPage: React.FC = () => {
       deliveryDate: formData.get('deliveryDate') as string,
       notes: formData.get('notes') as string,
       customerName: formData.get('customerName') as string,
+      goldWeight: parseFloat(formData.get('goldWeight') as string) || 0,
+      metalType: formData.get('metalType') as string || 'ذهب صافي',
     };
 
     if (editingOrder) {
@@ -92,10 +124,10 @@ const OrdersPage: React.FC = () => {
 
   const getStatusLabel = (status: string) => {
     switch (status) {
-      case 'completed': return 'تم التجهيز';
-      case 'pending': return 'لم يتم التجهيز';
-      case 'in_progress': return 'جاري التجهيز';
-      case 'cancelled': return 'ملغاة';
+      case 'completed': return 'تم التسليم';
+      case 'pending': return 'لم يتم التسليم';
+      case 'in_progress': return 'قيد التسليم';
+      case 'cancelled': return 'ملغي';
       default: return status;
     }
   };
@@ -106,7 +138,7 @@ const OrdersPage: React.FC = () => {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-3xl font-bold text-yellow-400">الطلبيات</h1>
-          <p className="text-gray-400 mt-1">إدارة طلبات العملاء</p>
+          <p className="text-gray-400 mt-1">إدارة طلبيات العملاء</p>
         </div>
         <button
           onClick={() => {
@@ -128,7 +160,7 @@ const OrdersPage: React.FC = () => {
               <ShoppingBag className="w-5 h-5 text-yellow-400" />
             </div>
             <div>
-              <p className="text-gray-400 text-sm">إجمالي الطرود</p>
+              <p className="text-gray-400 text-sm">إجمالي الطلبيات</p>
               <p className="text-2xl font-bold text-white">{orders.length}</p>
             </div>
           </div>
@@ -161,7 +193,7 @@ const OrdersPage: React.FC = () => {
               <Calendar className="w-5 h-5 text-yellow-400" />
             </div>
             <div>
-              <p className="text-gray-400 text-sm">معلق</p>
+              <p className="text-gray-400 text-sm">قائمة</p>
               <p className="text-lg font-bold text-white">{orders.filter(o => o.status === 'pending' || o.status === 'in_progress').length}</p>
             </div>
           </div>
@@ -174,7 +206,7 @@ const OrdersPage: React.FC = () => {
           <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
           <input
             type="text"
-            placeholder="البحث برقم الطلبية أو اسم الزبون..."
+            placeholder="البحث في الطلبيات أو اسم العميل..."
             value={searchQuery}
             onChange={(e) => handleSearch(e.target.value)}
             className="w-full bg-gray-800 border border-gray-700 rounded-lg pr-10 pl-4 py-3 text-white placeholder-gray-400 focus:outline-none focus:border-yellow-500"
@@ -187,10 +219,10 @@ const OrdersPage: React.FC = () => {
             className="appearance-none bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-white pr-10 focus:outline-none focus:border-yellow-500 cursor-pointer"
           >
             <option value="all">كل الحالات</option>
-            <option value="completed">تم التجهيز</option>
-            <option value="pending">لم يتم التجهيز</option>
-            <option value="in_progress">جاري التجهيز</option>
-            <option value="cancelled">ملغاة</option>
+            <option value="completed">تم التسليم</option>
+            <option value="pending">لم يتم التسليم</option>
+            <option value="in_progress">قيد التسليم</option>
+            <option value="cancelled">ملغي</option>
           </select>
           <ChevronDown className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none" />
         </div>
@@ -203,12 +235,15 @@ const OrdersPage: React.FC = () => {
             <thead className="bg-gray-900/50">
               <tr>
                 <th className="px-4 py-3 text-right text-sm font-medium text-gray-400">رقم الطلبية</th>
-                <th className="px-4 py-3 text-right text-sm font-medium text-gray-400">الزبون</th>
+                <th className="px-4 py-3 text-right text-sm font-medium text-gray-400">العميل</th>
                 <th className="px-4 py-3 text-right text-sm font-medium text-gray-400">النوع</th>
                 <th className="px-4 py-3 text-right text-sm font-medium text-gray-400">العيار</th>
+                <th className="px-4 py-3 text-right text-sm font-medium text-gray-400">وزن الذهب</th>
+                <th className="px-4 py-3 text-right text-sm font-medium text-gray-400">المعدن</th>
+                <th className="px-4 py-3 text-right text-sm font-medium text-gray-400">القيمة الفعلية</th>
                 <th className="px-4 py-3 text-right text-sm font-medium text-gray-400">القيمة</th>
                 <th className="px-4 py-3 text-right text-sm font-medium text-gray-400">العربون</th>
-                <th className="px-4 py-3 text-right text-sm font-medium text-gray-400">تاريخ التسليم</th>
+                <th className="px-4 py-3 text-right text-sm font-medium text-gray-400">زمن التسليم</th>
                 <th className="px-4 py-3 text-right text-sm font-medium text-gray-400">الحالة</th>
                 <th className="px-4 py-3 text-right text-sm font-medium text-gray-400">إجراءات</th>
               </tr>
@@ -216,8 +251,8 @@ const OrdersPage: React.FC = () => {
             <tbody className="divide-y divide-gray-700">
               {filteredOrders.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-4 py-8 text-center text-gray-400">
-                    لا يوجد طلبات
+                  <td colSpan={12} className="px-4 py-8 text-center text-gray-400">
+                    لا يوجد طلبيات
                   </td>
                 </tr>
               ) : (
@@ -227,9 +262,12 @@ const OrdersPage: React.FC = () => {
                     <td className="px-4 py-3 text-white">{order.customerName}</td>
                     <td className="px-4 py-3 text-gray-300">{order.orderType}</td>
                     <td className="px-4 py-3 text-gray-300">{order.karat}</td>
-                    <td className="px-4 py-3 text-green-400">{order.totalValue.toLocaleString()} د.ل</td>
-                    <td className="px-4 py-3 text-blue-400">{order.deposit.toLocaleString()} د.ل</td>
-                    <td className="px-4 py-3 text-gray-300">{new Date(order.deliveryDate).toLocaleDateString('ar-LY')}</td>
+                    <td className="px-4 py-3 text-green-400">{order.goldWeight.toFixed(2)} جرام</td>
+                    <td className="px-4 py-3 text-blue-400">{order.metalType}</td>
+                    <td className="px-4 py-3 text-gray-300">{(order.goldWeight * getGoldPricePerGram(order.karat)).toLocaleString()} د.ل</td>
+                    <td className="px-4 py-3 text-gray-300">{order.totalValue.toLocaleString()} د.ل</td>
+                    <td className="px-4 py-3 text-gray-300">{order.deposit.toLocaleString()} د.ل</td>
+                    <td className="px-4 py-3 text-gray-300">{new Date(order.deliveryDate).toLocaleDateString('en-CA')}</td>
                     <td className="px-4 py-3">
                       <span className={`px-3 py-1 rounded-full text-xs font-medium text-white ${getStatusColor(order.status)}`}>
                         {getStatusLabel(order.status)}
@@ -240,7 +278,7 @@ const OrdersPage: React.FC = () => {
                         <button
                           onClick={() => handlePrintReceipt(order.id)}
                           className="p-2 text-green-400 hover:bg-green-500/20 rounded-lg transition-all"
-                          title="طباعة الاستلام"
+                          title="طباعة الإيصال"
                         >
                           <Printer className="w-4 h-4" />
                         </button>
@@ -288,7 +326,7 @@ const OrdersPage: React.FC = () => {
             <form onSubmit={handleSubmit} className="p-4 space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm text-gray-400 mb-1">اسم الزبون *</label>
+                  <label className="block text-sm text-gray-400 mb-1">اسم العميل *</label>
                   <input
                     type="text"
                     name="customerName"
@@ -304,7 +342,7 @@ const OrdersPage: React.FC = () => {
                     name="orderType"
                     required
                     defaultValue={editingOrder?.orderType}
-                    placeholder="مثل: خاتم، سوار، غضور..."
+                    placeholder="مثال: خاتم سيراميك ج其间..."
                     className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-yellow-500"
                   />
                 </div>
@@ -323,21 +361,23 @@ const OrdersPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm text-gray-400 mb-1">تاريخ الاستلام *</label>
-                  <input
+                  <label className="block text-sm text-gray-400 mb-1">زمن الاستلام *</label>
+                   <input
                     type="date"
                     name="receiveDate"
                     required
+                    lang="en"
                     defaultValue={editingOrder?.receiveDate || new Date().toISOString().split('T')[0]}
                     className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-yellow-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm text-gray-400 mb-1">تاريخ التسليم *</label>
+                  <label className="block text-sm text-gray-400 mb-1">زمن التسليم *</label>
                   <input
                     type="date"
                     name="deliveryDate"
                     required
+                    lang="en"
                     defaultValue={editingOrder?.deliveryDate || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]}
                     className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-yellow-500"
                   />
@@ -345,19 +385,50 @@ const OrdersPage: React.FC = () => {
                 <div>
                   <label className="block text-sm text-gray-400 mb-1">القيمة الإجمالية (د.ل)</label>
                   <input
-                    type="number"
+                    type="text" inputMode="decimal"
                     name="totalValue"
                     step="0.01"
+                    min="0"
                     defaultValue={editingOrder?.totalValue}
                     className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-yellow-500"
                   />
                 </div>
                 <div>
+                  <label className="block text-sm text-gray-400 mb-1">وزن الذهب (جرام)</label>
+                  <input
+                    type="text" inputMode="decimal"
+                    name="goldWeight"
+                    step="0.01"
+                    min="0"
+                    defaultValue={editingOrder?.goldWeight || ''}
+                    className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-yellow-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-400 mb-1">نوع المعدن</label>
+                  <select
+                    name="metalType"
+                    defaultValue={editingOrder?.metalType || 'ذهب صافي'}
+                    className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-yellow-500"
+                  >
+                    {METAL_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-400 mb-1">القيمة الفعلية للذهب (د.ل)</label>
+                  <div className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-yellow-400 font-bold">
+                    {editingOrder?.goldWeight && editingOrder?.karat ? (
+                      `${formatNumber(editingOrder.goldWeight * getGoldPricePerGram(editingOrder.karat))} د.ل`
+                    ) : 'أدخل الوزن والعيار أولاً'}
+                  </div>
+                </div>
+                <div>
                   <label className="block text-sm text-gray-400 mb-1">العربون (د.ل)</label>
                   <input
-                    type="number"
+                    type="text" inputMode="decimal"
                     name="deposit"
                     step="0.01"
+                    min="0"
                     defaultValue={editingOrder?.deposit}
                     className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-yellow-500"
                   />
@@ -369,10 +440,10 @@ const OrdersPage: React.FC = () => {
                     defaultValue={editingOrder?.status || 'pending'}
                     className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-yellow-500"
                   >
-                    <option value="pending">لم يتم التجهيز</option>
-                    <option value="in_progress">جاري التجهيز</option>
-                    <option value="completed">تم التجهيز</option>
-                    <option value="cancelled">ملغاة</option>
+                    <option value="pending">لم يتم التسليم</option>
+                    <option value="in_progress">قيد التسليم</option>
+                    <option value="completed">تم التسليم</option>
+                    <option value="cancelled">ملغي</option>
                   </select>
                 </div>
                 <div>
@@ -383,13 +454,13 @@ const OrdersPage: React.FC = () => {
                     className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-yellow-500"
                   >
                     <option value="unpaid">لم يتم الدفع</option>
-                    <option value="partial">دفع جزء</option>
-                    <option value="paid">تم الدفع الكامل</option>
+                    <option value="partial">دفع جزئي</option>
+                    <option value="paid">تم الدفع بالكامل</option>
                     <option value="returned">مرتجع</option>
                   </select>
                 </div>
                 <div className="md:col-span-2">
-                  <label className="block text-sm text-gray-400 mb-1">ملاحظات</label>
+                  <label className="block text-sm text-gray-400 mb-1">التفاصيل</label>
                   <textarea
                     name="notes"
                     rows={3}
@@ -427,7 +498,7 @@ const OrdersPage: React.FC = () => {
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-gray-800 rounded-xl w-full max-w-md border border-gray-700 p-6">
             <h3 className="text-xl font-bold text-red-400 mb-4">تأكيد الحذف</h3>
-            <p className="text-gray-300 mb-6">هل أنت متأكد من حذف هذه الطلبية؟ لا يمكن التراجع عن هذا الإجراء.</p>
+            <p className="text-gray-300 mb-6">هل تريد حذف هذه الطلبية؟ لا يمكن التراجع عن هذا الإجراء.</p>
             <div className="flex gap-4">
               <button
                 onClick={() => handleDelete(showDeleteConfirm)}

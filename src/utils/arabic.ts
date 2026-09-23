@@ -1,4 +1,4 @@
-// التفقيط - تحويل الأرقام إلى كلمات بالعربي (دينار - قرش - درهم)
+// التفقيط - تحويل الأرقام إلى كلمات بالعربي (دينار - درهم)
 export const numberToArabicWords = (num: number): string => {
   if (num === 0) return 'صفر';
 
@@ -40,15 +40,39 @@ export const numberToArabicWords = (num: number): string => {
 
   const intWords = getArabicWord(intPart);
 
-  // Handle decimals - الدينار = 1000 قرش، القرش = 10 دراهم
+  // Handle decimals - الدينار = 1000 درهم
   if (decPart === 0) {
     return intWords + ' دينار';
   }
 
-  const dec = Math.round(decPart * 100);
+  const dec = Math.round(decPart * 1000);
   const decWords = getArabicWord(dec);
 
-  return intWords + ' دينار و ' + decWords + ' قرش';
+  if (dec === 1) {
+    return intWords + ' دينار و ' + decWords + ' درهم';
+  }
+  return intWords + ' دينار و ' + decWords + ' درهم';
+};
+
+export const numberToArabicWeightWords = (num: number): string => {
+  const value = Number(num) || 0;
+  if (value === 0) return 'صفر جرام';
+  const kilograms = Math.floor(value / 1000);
+  const remainingGrams = Math.floor(value % 1000);
+  const decimalPart = Math.round((value - Math.floor(value)) * 100);
+  const parts: string[] = [];
+
+  if (kilograms > 0) {
+    parts.push(`${numberToArabicWords(kilograms).replace(/ دينار/g, '')} كيلو`);
+  }
+  if (remainingGrams > 0) {
+    parts.push(`${numberToArabicWords(remainingGrams).replace(/ دينار/g, '')} جرام`);
+  }
+  if (decimalPart > 0) {
+    parts.push(`${decimalPart} جزء من الجرام`);
+  }
+
+  return parts.join(' و ');
 };
 
 // تنسيق السعر

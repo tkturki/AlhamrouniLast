@@ -20,9 +20,9 @@ const LoginPage: React.FC = () => {
       const user = await authApi.login(username, password);
       // توجيه حسب نوع المستخدم
       if (user.role === 'admin') {
-        navigate('/');
+        navigate('/home');
       } else {
-        navigate('/');
+        navigate('/home');
       }
       window.location.reload(); // إعادة تحميل الصفحة لتحديث الحالة
     } catch (err: any) {
@@ -37,7 +37,7 @@ const LoginPage: React.FC = () => {
       <div className="w-full max-w-md">
         {/* Logo */}
         <div className="text-center mb-8">
-          <img src="/logo.png" alt="مجوهرات الحمروني" className="w-24 h-24 mx-auto mb-4 rounded-2xl" />
+          <img src="/logo1.png" alt="مجوهرات الحمروني" className="w-24 h-24 mx-auto mb-4 rounded-2xl" />
           <h1 className="text-3xl font-bold text-yellow-400">مجوهرات الحمروني</h1>
           <p className="text-gray-400 mt-2">نظام إدارة المجوهرات</p>
         </div>

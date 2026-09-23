@@ -7,6 +7,8 @@ export interface Order {
   orderNumber: string;
   orderType: string; // نوع وبيان الطلبية
   karat: string;
+  goldWeight: number; // وزن الذهب بالجرام
+  metalType: string; // نوع المعدن
   totalValue: number; // القيمة الاجمالية
   deposit: number; // العربون
   status: OrderStatus;
@@ -153,7 +155,7 @@ export const printOrderReceipt = (order: Order): void => {
         .status-pending { background: #FFC107; color: black; }
         .status-in_progress { background: #2196F3; color: white; }
         .status-cancelled { background: #f44336; color: white; }
-        @media print { body { padding: 0; } }
+        @media print { body { padding: 0; } *, *::before, *::after { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; } }
       </style>
     </head>
     <body>
@@ -182,11 +184,11 @@ export const printOrderReceipt = (order: Order): void => {
         </div>
         <div class="info-box">
           <label>تاريخ الاستلام</label>
-          <span>${new Date(order.receiveDate).toLocaleDateString('ar-LY')}</span>
+          <span>${new Date(order.receiveDate).toLocaleDateString('en-CA')}</span>
         </div>
         <div class="info-box">
           <label>تاريخ التسليم</label>
-          <span>${new Date(order.deliveryDate).toLocaleDateString('ar-LY')}</span>
+          <span>${new Date(order.deliveryDate).toLocaleDateString('en-CA')}</span>
         </div>
       </div>
 
@@ -226,7 +228,7 @@ export const printOrderReceipt = (order: Order): void => {
       ` : ''}
 
       <div class="footer">
-        <p>تم إصدار هذا السند بتاريخ ${new Date(order.createdAt).toLocaleDateString('ar-LY')}</p>
+        <p>تم إصدار هذا السند بتاريخ ${new Date(order.createdAt).toLocaleDateString('en-CA')}</p>
         <p style="margin-top: 10px;">التوقيع: _______________</p>
       </div>
     </body>

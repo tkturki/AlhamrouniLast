@@ -1,0 +1,21 @@
+[
+  {
+    "id": "1784386682318",
+    "employee_name": "خالد التركي",
+    "amount": 1500,
+    "settled_amount": 250,
+    "status": "partial",
+    "description": "شراء متطلبات المكتب- ادوات مكتبية",
+    "created_at": "2026-07-18T14:58:02.318Z",
+    "settlement_date": "2026-07-18T14:58:29.731Z",
+    "settlement_note": "قيمة شراء طابعة"
+  },
+  {
+    "employee_name": "test",
+    "amount": 100,
+    "status": "pending",
+    "description": "test",
+    "created_at": "2026-07-18",
+    "id": "1784384505370"
+  }
+]

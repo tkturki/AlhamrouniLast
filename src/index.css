@@ -2,6 +2,46 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Force English numerals on ALL number and date inputs */
+input[type="number"],
+input[type="date"],
+input[type="text"][inputmode="numeric"],
+input[type="text"][inputmode="decimal"],
+input[inputmode="decimal"],
+input[inputmode="numeric"] {
+  direction: ltr !important;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  -webkit-font-feature-settings: "lnum";
+  font-feature-settings: "lnum";
+  unicode-bidi: plaintext;
+}
+
+/* Remove number input arrows globally */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+/* Prevent scroll wheel from changing number input values */
+input[type="number"]:not(:focus) {
+  overflow: hidden;
+}
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+}
+input[type="date"]::-webkit-calendar-wrapper {
+  direction: ltr;
+}
+input[type="date"]::-webkit-calendar-fields-container {
+  direction: ltr;
+}
+
 @layer base {
   :root {
     --radius: 0.5rem;
@@ -35,4 +75,13 @@ img {
 
 .fixed {
   position: fixed;
+}
+
+@keyframes logoSpin {
+  0% { transform: rotateY(0deg) scale(0.3); opacity: 0; }
+  50% { transform: rotateY(180deg) scale(0.8); opacity: 0.7; }
+  100% { transform: rotateY(360deg) scale(1); opacity: 1; }
+}
+.animate-logo-spin {
+  animation: logoSpin 1.2s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
 }

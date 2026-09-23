@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Home, Search, ShoppingCart, Package, QrCode, FileText, LogOut, User, Image as ImageIcon, Shield, Printer, BarChart3, FilePlus, Users, ShoppingBag, Wallet, Database, MessageCircle, ExternalLink, Eye, Upload, PieChart, Share2, Menu, X } from 'lucide-react';
+import { Home, Search, ShoppingCart, Package, QrCode, FileText, LogOut, User, Shield, Printer, BarChart3, FilePlus, Users, ShoppingBag, Wallet, PieChart, Menu, RotateCcw, DollarSign, ClipboardList, Factory, Target, Globe } from 'lucide-react';
 import { authApi, User as UserType } from '../services/supabase';
-import { autoBackup } from '../services/backup';
+import { exportFullBackup } from '../services/backup';
+import { loadSettingsFromSupabase } from '../services/settings';
+import { realtimeSync } from '../services/realtimeSync';
 
 const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const location = useLocation();
@@ -14,6 +16,13 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   useEffect(() => {
     const user = authApi.getCurrentUser();
     setCurrentUser(user);
+    // Load settings from Supabase on app start
+    loadSettingsFromSupabase().catch(() => {});
+    // Start realtime sync - data lives on Supabase server
+    realtimeSync.start();
+    return () => {
+      realtimeSync.stop();
+    };
   }, []);
 
   useEffect(() => {
@@ -21,11 +30,10 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   }, [location.pathname]);
 
   const handleLogout = () => {
-    const confirmed = window.confirm('هل تريد نسخ البيانات احتياطياً قبل الخروج؟\n\nاضغط "موافق" للنسخ ثم الخروج، أو "إلغاء" للخروج مباشرة.');
+    const confirmed = window.confirm('هل تريد تحميل نسخة احتياطية قبل الخروج؟\n\nاضغط "موافق" للتحميل ثم الخروج، أو "إلغاء" للخروج مباشرة.');
 
     if (confirmed) {
-      autoBackup();
-      alert('تم إنشاء نسخ احتياطي بنجاح!');
+      exportFullBackup();
     }
 
     authApi.logout();
@@ -33,24 +41,46 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     navigate('/login');
   };
 
+  const hasPermission = (perm: string): boolean => {
+    if (!currentUser) return false;
+    if (currentUser.role === 'admin') return true;
+    return (currentUser.permissions as any)?.[perm] ?? false;
+  };
+
+  const roleLabels: Record<string, string> = {
+    admin: 'مدير النظام',
+    accountant: 'محاسب',
+    seller: 'بائع',
+    data_entry: 'مدخل بيانات',
+  };
+
   const navItems = [
-    { path: '/', icon: Home, label: 'الرئيسية' },
-    { path: '/add', icon: QrCode, label: 'التكويد' },
-    { path: '/order-data', icon: FilePlus, label: 'بيانات الطلبية' },
-    { path: '/sales', icon: ShoppingCart, label: 'إنشاء فاتورة' },
-    { path: '/draft-invoices', icon: FilePlus, label: 'الفواتير المبدئية' },
-    { path: '/invoices', icon: FileText, label: 'الفواتير' },
-    { path: '/orders', icon: ShoppingBag, label: 'الطلبيات' },
-    { path: '/search', icon: Search, label: 'البحث' },
-    { path: '/items', icon: Package, label: 'المخزن' },
-    { path: '/dashboard', icon: BarChart3, label: 'التحليلات' },
-    { path: '/print-labels', icon: Printer, label: 'طباعة الليبل' },
-    ...(currentUser?.role === 'admin' ? [
-      { path: '/suppliers', icon: Users, label: 'الموردين' },
-      { path: '/treasury', icon: Wallet, label: 'المالية' },
-      { path: '/admin', icon: Shield, label: 'لوحة التحكم' },
+    { path: '/home', icon: Home, label: 'الرئيسية', perm: null },
+    { path: '/add', icon: QrCode, label: 'التكويد', perm: 'canAddItems' },
+    { path: '/sales', icon: ShoppingCart, label: 'إنشاء فاتورة', perm: 'canCreateInvoice' },
+    { path: '/invoices-hub', icon: FileText, label: 'الفواتير', perm: 'canPrintInvoices' },
+    { path: '/orders', icon: ShoppingBag, label: 'الطلبيات', perm: 'canManageOrders' },
+    { path: '/search', icon: Search, label: 'البحث', perm: 'canSearch' },
+    { path: '/items', icon: Package, label: 'المخزن', perm: 'canSearch' },
+    { path: '/inventory-tabs', icon: Package, label: 'عرض الطلبيات', perm: 'canSearch' },
+    { path: '/daily-accounts', icon: Wallet, label: 'الحسابات اليومية', perm: 'canViewReports' },
+    { path: '/returns', icon: RotateCcw, label: 'المرتجعات', perm: 'canReturns' },
+    { path: '/dashboard', icon: BarChart3, label: 'التحليلات', perm: 'canViewAnalysis' },
+    { path: '/competitors', icon: Target, label: 'تحليل المنافسين', perm: 'canViewAnalysis' },
+    { path: '/competitors-online', icon: Globe, label: 'التحديث الأونلاين', perm: 'canViewAnalysis' },
+    { path: '/audit', icon: BarChart3, label: 'التقرير المالي', perm: 'canViewReports' },
+    { path: '/print-labels', icon: Printer, label: 'طباعة الليبل', perm: 'canPrintInvoices' },
+    { path: '/inventory-count', icon: ClipboardList, label: 'الجرد', perm: 'canSearch' },
+    { path: '/manufacturing', icon: Factory, label: 'التصنيع', perm: null },
+    { path: '/price-bulletin', icon: ClipboardList, label: 'نشرة الأسعار', perm: null },
+    ...(hasPermission('canManageUsers') ? [
+      { path: '/suppliers', icon: Users, label: 'الموردين', perm: null },
+      { path: '/treasury', icon: Wallet, label: 'المالية', perm: null },
+      { path: '/advances', icon: DollarSign, label: 'العهد', perm: null },
+      { path: '/hr', icon: Users, label: 'الموظفين', perm: null },
+      { path: '/admin', icon: Shield, label: 'لوحة التحكم', perm: null },
     ] : []),
-  ];
+  ].filter(item => !item.perm || hasPermission(item.perm));
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex" dir="rtl">
@@ -64,7 +94,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         {/* Logo */}
         <div className="p-4 border-b border-gray-700">
           <div className="flex items-center gap-3">
-            <img src="/logo.png" alt="شعار" className="w-10 h-10 rounded-lg" />
+            <img src="/logo1.png" alt="شعار" className="w-10 h-10 rounded-lg" />
             <span className="text-lg font-bold text-yellow-400">مجوهرات الحمروني</span>
           </div>
         </div>
@@ -98,7 +128,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
               <User className="w-5 h-5 text-yellow-400" />
               <div className="flex-1">
                 <p className="text-yellow-400 font-bold text-sm">{currentUser.name}</p>
-                <p className="text-gray-400 text-xs">{currentUser.role === 'admin' ? 'مدير' : 'بائع'}</p>
+                <p className="text-gray-400 text-xs">{roleLabels[currentUser.role] || currentUser.role}</p>
               </div>
               <button onClick={handleLogout} className="text-red-400 hover:text-red-300">
                 <LogOut className="w-5 h-5" />

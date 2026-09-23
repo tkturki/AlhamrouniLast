@@ -5,7 +5,7 @@ import {
   Star, ArrowUp, ArrowDown, Save, FolderOpen, Camera,
   FileImage, FileVideo, CheckCircle, AlertCircle, Loader2
 } from 'lucide-react';
-import { supabase, JewelryItem } from '../services/supabase';
+import { supabase, JewelryItem, isSupabaseAvailable } from '../services/supabase';
 
 interface GalleryImage {
   id: string;
@@ -37,22 +37,27 @@ const GalleryManagerPage: React.FC = () => {
   const loadItems = async () => {
     setLoading(true);
     try {
-      // Load from Supabase
-      try {
-        const { data, error } = await supabase
-          .from('jewelry_items')
-          .select('*')
-          .order('created_at', { ascending: false });
+      // Load from Supabase first
+      if (isSupabaseAvailable() && supabase) {
+        try {
+          const { data, error } = await supabase
+            .from('jewelry_items')
+            .select('*')
+            .order('created_at', { ascending: false });
 
-        if (!error && data) {
-          setItems(data);
+          if (!error && data) {
+            setItems(data);
+            setLoading(false);
+            return;
+          }
+        } catch (e) {
+          console.log('Supabase not available, using localStorage');
         }
-      } catch (e) {
-        // Fallback to localStorage
-        const stored = localStorage.getItem('jewelry_items');
-        if (stored) {
-          setItems(JSON.parse(stored));
-        }
+      }
+      // Fallback to localStorage
+      const stored = localStorage.getItem('jewelry_items');
+      if (stored) {
+        setItems(JSON.parse(stored));
       }
     } catch (error) {
       console.error('Error loading items:', error);
@@ -156,13 +161,14 @@ const GalleryManagerPage: React.FC = () => {
   };
 
   const handleRemoveImage = (imageId: string) => {
+    // Remove from state
     const updated = galleryImages.filter(img => img.id !== imageId);
     setGalleryImages(updated);
 
-    // Update localStorage
+    // Update localStorage - remove from ALL images, then add back remaining
     const allImages = JSON.parse(localStorage.getItem('gallery_images') || '[]');
-    const filtered = allImages.filter((img: GalleryImage) => img.item_code !== selectedItem?.item_code || img.id !== imageId);
-    localStorage.setItem('gallery_images', JSON.stringify([...filtered, ...updated]));
+    const otherItemImages = allImages.filter((img: GalleryImage) => img.item_code !== selectedItem?.item_code);
+    localStorage.setItem('gallery_images', JSON.stringify([...otherItemImages, ...updated]));
   };
 
   const handleSetPrimary = (imageId: string) => {
@@ -181,14 +187,16 @@ const GalleryManagerPage: React.FC = () => {
   const handleToggleGalleryVisibility = async (item: JewelryItem) => {
     const newValue = !(item as any).show_in_gallery;
 
-    try {
-      // Update Supabase
-      await supabase
-        .from('jewelry_items')
-        .update({ show_in_gallery: newValue })
-        .eq('item_code', item.item_code);
-    } catch (e) {
-      console.log('Supabase not available');
+    // Update Supabase
+    if (isSupabaseAvailable() && supabase) {
+      try {
+        await supabase
+          .from('jewelry_items')
+          .update({ show_in_gallery: newValue })
+          .eq('item_code', item.item_code);
+      } catch (e) {
+        console.log('Supabase update failed');
+      }
     }
 
     // Update localStorage

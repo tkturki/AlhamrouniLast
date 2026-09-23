@@ -1,0 +1,20 @@
+[
+  {
+    "technicalName": "سوارات",
+    "description": "عبارة عن سوارات باليد يوجد فيهم فصوص ( وأحجار)",
+    "pieceType": "قلادة",
+    "pieceName": "سوارات صدرة",
+    "requiredWeight": 33,
+    "karat": "18",
+    "paidValue": 7800,
+    "manufacturingCost": 730,
+    "factoryPaid": 5000,
+    "deliveryStartDate": "2026-07-21",
+    "deliveryEndDate": "2026-07-31",
+    "location": "internal",
+    "notes": "دفع الباقي عند التجهيز",
+    "netPrice": 40330,
+    "id": "mfg_1784650351711",
+    "created_at": "2026-07-21T16:12:31.711Z"
+  }
+]

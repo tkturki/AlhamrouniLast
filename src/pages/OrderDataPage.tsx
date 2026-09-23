@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { Package, Plus, Check, X, DollarSign, Scale, Coins, Link, History, Trash2, User } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { addOrder } from '../services/orders';
@@ -91,6 +91,8 @@ const OrderDataPage: React.FC = () => {
       receiveDate: new Date().toISOString().split('T')[0],
       deliveryDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
       notes: `نوع الاستلام: ${receiptTypeLabel}${goldWeight ? ` - الوزن: ${goldWeight} كغ` : ''}${bullionCount ? ` - عدد السبائك: ${bullionCount}` : ''}`,
+      goldWeight: goldWeight ? parseFloat(goldWeight) * 1000 : 0,
+      metalType: 'ذهب صافي',
     });
 
     // Reset form
@@ -267,7 +269,7 @@ const OrderDataPage: React.FC = () => {
               <div className="relative">
                 <Scale className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                 <input
-                  type="number"
+                  type="text" inputMode="decimal"
                   step="0.01"
                   min="1"
                   max="10"
@@ -288,7 +290,7 @@ const OrderDataPage: React.FC = () => {
               <div className="relative">
                 <Coins className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                 <input
-                  type="number"
+                  type="text" inputMode="decimal"
                   min="1"
                   value={bullionCount}
                   onChange={(e) => setBullionCount(e.target.value)}
@@ -307,7 +309,7 @@ const OrderDataPage: React.FC = () => {
                 <div className="flex-1 relative">
                   <DollarSign className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                   <input
-                    type="number"
+                    type="text" inputMode="decimal"
                     step="0.01"
                     min="0"
                     value={financialAmount}

@@ -1,16 +1,48 @@
 import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Printer, ArrowRight, Home, CheckCircle } from 'lucide-react';
+import { Printer, ArrowRight, Home, CheckCircle, Edit2, Save } from 'lucide-react';
 import { SaleInvoice } from '../services/supabase';
+import { DEFAULT_INVOICE_PRINT_CONFIG, InvoiceColumnId, InvoicePrintConfig, printInvoice } from '../services/invoiceTemplate';
 import { numberToArabicWords } from '../utils/arabic';
-import { getSystemSettings } from '../services/settings';
-import { QRCodeSVG } from 'qrcode.react';
 
 const InvoicePage: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const [invoice, setInvoice] = useState<SaleInvoice | null>(null);
   const [printed, setPrinted] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editCustomerName, setEditCustomerName] = useState('');
+  const [printPageSize, setPrintPageSize] = useState('A5');
+  const [printOrientation, setPrintOrientation] = useState('portrait');
+  const [printConfig, setPrintConfig] = useState<InvoicePrintConfig>(() => {
+    try {
+      const saved = localStorage.getItem('invoice_print_config');
+      return saved ? { ...DEFAULT_INVOICE_PRINT_CONFIG, ...JSON.parse(saved), columnLabels: { ...DEFAULT_INVOICE_PRINT_CONFIG.columnLabels, ...JSON.parse(saved).columnLabels } } : DEFAULT_INVOICE_PRINT_CONFIG;
+    } catch {
+      return DEFAULT_INVOICE_PRINT_CONFIG;
+    }
+  });
+
+  const columnOptions: { id: InvoiceColumnId; label: string }[] = [
+    { id: 'serial', label: '#' }, { id: 'item', label: 'الصنف' }, { id: 'code', label: 'الكود' },
+    { id: 'karat', label: 'العيار' }, { id: 'weight', label: 'الوزن' }, { id: 'quantity', label: 'العدد' },
+    { id: 'unit_price', label: 'السعر' }, { id: 'total', label: 'الإجمالي' }, { id: 'notes', label: 'ملاحظات' },
+  ];
+
+  const updatePrintConfig = (patch: Partial<InvoicePrintConfig>) => {
+    setPrintConfig(current => {
+      const next = { ...current, ...patch };
+      localStorage.setItem('invoice_print_config', JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const toggleColumn = (column: InvoiceColumnId) => {
+    const columns = printConfig.columns.includes(column)
+      ? printConfig.columns.filter(item => item !== column)
+      : [...printConfig.columns, column];
+    if (columns.length > 0) updatePrintConfig({ columns });
+  };
 
   useEffect(() => {
     if (location.state?.invoice) {
@@ -22,110 +54,45 @@ const InvoicePage: React.FC = () => {
 
   const handlePrint = () => {
     if (!invoice) return;
-    const s = getSystemSettings();
-    const date = new Date(invoice.created_at);
-    const day = date.getDate().toString().padStart(2, '0');
-    const month = (date.getMonth() + 1).toString().padStart(2, '0');
-    const year = date.getFullYear();
-    const total = invoice.total_amount || 0;
-    const words = total > 0 ? numberToArabicWords(total) : 'صفر';
-
-    const rows = (invoice.items || []).map((it, i) => `
-      <tr>
-        <td style="border:1px solid #333;padding:4px 6px;text-align:right;width:22%">${it.model_name || it.category || '----'}</td>
-        <td style="border:1px solid #333;padding:4px 6px;text-align:center;width:10%;font-weight:bold">${it.karat || '21'}</td>
-        <td style="border:1px solid #333;padding:4px 6px;text-align:center;width:15%">${(it.weight || 0).toFixed(2)}</td>
-        <td style="border:1px solid #333;padding:4px 6px;text-align:center;width:15%">${it.price_per_gram ? Number(it.price_per_gram).toLocaleString('en-US') : ((it.total || 0) / ((it.weight || 1) * (it.quantity || 1))).toFixed(2)}</td>
-        <td style="border:1px solid #333;padding:4px 6px;text-align:center;width:18%">${(it.total || 0).toLocaleString('en-US', {minimumFractionDigits:2,maximumFractionDigits:2})}</td>
-        <td style="border:1px solid #333;padding:4px 6px;text-align:center;width:20%"></td>
-      </tr>`).join('');
-
-    const emptyRows = Array.from({length: Math.max(0, 6 - (invoice.items?.length || 0))}).map(() => `
-      <tr style="height:24px">
-        <td style="border:1px solid #333"></td>
-        <td style="border:1px solid #333"></td>
-        <td style="border:1px solid #333"></td>
-        <td style="border:1px solid #333"></td>
-        <td style="border:1px solid #333"></td>
-        <td style="border:1px solid #333"></td>
-      </tr>`).join('');
-
-    const qrSvg = document.querySelector('#invoice-qr svg');
-    const qrData = qrSvg ? qrSvg.outerHTML : '';
-
-    const html = `<!DOCTYPE html>
-<html lang="ar" dir="rtl">
-<head>
-  <meta charset="UTF-8"><title>فاتورة ${invoice.invoice_number}</title>
-  <style>
-    @page{size:A5 landscape;margin:3mm}
-    *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;box-sizing:border-box}
-    body{margin:0;padding:5mm;font-family:Arial,sans-serif;color:#000;background:#fff;width:190mm}
-    table{width:100%;border-collapse:collapse}tr{page-break-inside:avoid}
-  </style>
-</head><body>
-  <div style="text-align:center;margin-bottom:8px">
-    <img src="/logo.png" style="width:70px;height:70px;border-radius:50%;border:2px solid #ccc"/>
-    <div style="font-size:18px;font-weight:900;letter-spacing:0.05em;margin:4px 0">مجوهرات الحمروني</div>
-    <div style="font-size:9px;color:#555">لإستيراد الحُليّ والمجوهرات والأحجار الكريمة والمعادن الثمينة (ذ-م-م)</div>
-    <div style="margin:4px auto">${qrData}</div>
-  </div>
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;font-size:10px">
-    <div><b>التاريخ: </b><span style="border-bottom:1px solid #999;padding:0 6px">${year}/${month}/${day}</span></div>
-    <div><b>فاتورة تفصيلية رقم: </b><span style="color:#dc2626;font-weight:bold;font-size:12px;font-family:monospace">${invoice.invoice_number}</span></div>
-  </div>
-  <div style="margin-bottom:8px;font-size:10px"><b>السيد: </b><span style="border-bottom:1px solid #999;padding:0 12px;font-weight:bold">${invoice.customer_name || '─────────────────────────────'}</span></div>
-  <div style="border-top:2px solid #000;margin-bottom:2px"></div>
-  <table>
-    <thead><tr style="border-bottom:2px solid #000">
-      <th style="border:1px solid #333;padding:5px 6px;text-align:right;width:22%;font-weight:bold">الصنف</th>
-      <th style="border:1px solid #333;padding:5px 6px;text-align:center;width:10%;font-weight:bold">العيار</th>
-      <th style="border:1px solid #333;padding:5px 6px;text-align:center;width:15%;font-weight:bold">العدد/الوزن<br>(جـرام)</th>
-      <th style="border:1px solid #333;padding:5px 6px;text-align:center;width:15%;font-weight:bold">السعر<br>(د.ل)</th>
-      <th style="border:1px solid #333;padding:5px 6px;text-align:center;width:18%;font-weight:bold">الكمية<br>(د.ل)</th>
-      <th style="border:1px solid #333;padding:5px 6px;text-align:center;width:20%;font-weight:bold">ملاحظات</th>
-    </tr></thead>
-    <tbody>
-      ${rows}${emptyRows}
-      <tr style="border-bottom:1px solid #333">
-        <td colspan="4" style="border:1px solid #333;padding:4px 6px;text-align:center;font-weight:bold">اجمالي الفاتورة:</td>
-        <td style="border:1px solid #333;padding:4px 6px;text-align:center;font-weight:bold">${total.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
-        <td style="border:1px solid #333"></td>
-      </tr>
-      <tr style="border-bottom:1px solid #333">
-        <td colspan="4" style="border:1px solid #333;padding:4px 6px;text-align:center;font-weight:bold">المدة /نوع:</td>
-        <td style="border:1px solid #333"></td><td style="border:1px solid #333"></td>
-      </tr>
-      <tr style="border-bottom:1px solid #333">
-        <td colspan="4" style="border:1px solid #333;padding:4px 6px;text-align:center;font-weight:bold">الرسوم:</td>
-        <td style="border:1px solid #333"></td><td style="border:1px solid #333"></td>
-      </tr>
-    </tbody>
-  </table>
-  <div style="margin-top:8px;font-size:10px;border:1px solid #999;padding:5px 8px"><b>بالحروف: </b><b style="color:#1f2937">${words}</b></div>
-  <div style="display:flex;justify-content:space-between;margin-top:12px;font-size:10px">
-    <div style="text-align:center"><div style="border-top:1px solid #999;width:120px;margin-top:20px"></div><div style="font-size:9px;color:#555">توقيع العميل</div></div>
-    <div style="text-align:center"><div style="border-top:1px solid #999;width:120px;margin-top:20px"></div><div style="font-size:9px;color:#555">يعتمد المدير العام</div></div>
-  </div>
-  <div style="border-top:2px solid #000;margin:12px 0 6px"></div>
-  <div style="display:flex;justify-content:space-between;font-size:8px;color:#555">
-    <div style="text-align:right"><div>الهاتف: +218912133218</div><div>البريد: osama_hamruni@yahoo.com</div></div>
-    <div style="text-align:center"><div>ف.ت. ${invoice.invoice_number}</div></div>
-    <div style="text-align:left"><div>العنوان: ليبيا - طرابلس - شارع جرابة</div></div>
-  </div>
-</body></html>`;
-
-    const printWindow = window.open('', '_blank', 'width=900,height=700');
-    if (!printWindow) return;
-    printWindow.document.write(html);
-    printWindow.document.close();
-    printWindow.focus();
-    setTimeout(() => { printWindow.print(); printWindow.close(); }, 600);
+    printInvoice({
+      invoice_number: invoice.invoice_number,
+      customer_name: invoice.customer_name,
+      items: invoice.items,
+      total_amount: invoice.total_amount,
+      seller_name: invoice.seller_name,
+      created_at: invoice.created_at,
+      invoice_type: 'final',
+      payment_method: invoice.payment_method,
+      transfer_number: (invoice as any).transfer_number,
+      bank_name: (invoice as any).bank_name,
+      card_receipt_number: (invoice as any).card_receipt_number,
+      card_receipt_date: (invoice as any).card_receipt_date,
+      print_config: printConfig,
+    }, printPageSize, printOrientation);
     setPrinted(true);
   };
 
   const handleNewSale = () => {
     navigate('/sales');
+  };
+
+  const startEditing = () => {
+    if (!invoice) return;
+    setEditCustomerName(invoice.customer_name || '');
+    setIsEditing(true);
+  };
+
+  const saveEdit = () => {
+    if (!invoice) return;
+    const updated = { ...invoice, customer_name: editCustomerName };
+    const allInvoices = JSON.parse(localStorage.getItem('saved_invoices') || '[]');
+    const index = allInvoices.findIndex((inv: SaleInvoice) => inv.invoice_number === invoice.invoice_number);
+    if (index !== -1) {
+      allInvoices[index] = updated;
+      localStorage.setItem('saved_invoices', JSON.stringify(allInvoices));
+    }
+    setInvoice(updated);
+    setIsEditing(false);
   };
 
   if (!invoice) {
@@ -136,15 +103,60 @@ const InvoicePage: React.FC = () => {
     );
   }
 
-  // التفقيط - التحقق من القيمة
-  const totalInWords = invoice.total_amount > 0 ? numberToArabicWords(invoice.total_amount) : 'صفر';
-
   return (
     <div className="max-w-4xl mx-auto" id="invoice-container">
       {/* أزرار التحكم */}
-      <div className="hidden print:hidden gap-4 mb-6">
+      <div className="print:hidden grid gap-4 mb-6">
         {!printed ? (
           <>
+            <div className="bg-gray-800 rounded-xl p-4 border border-gray-700 text-white">
+              <h2 className="font-bold text-yellow-400 mb-3">إعداد فاتورة حسب الطلب</h2>
+              <div className="grid md:grid-cols-2 gap-3 mb-4">
+                <label className="text-sm">عنوان الفاتورة
+                  <input value={printConfig.title} onChange={e => updatePrintConfig({ title: e.target.value })} className="mt-1 w-full bg-gray-700 border border-gray-600 rounded px-3 py-2" />
+                </label>
+                <label className="text-sm">اسم التوقيع
+                  <input value={printConfig.signatureName} onChange={e => updatePrintConfig({ signatureName: e.target.value })} className="mt-1 w-full bg-gray-700 border border-gray-600 rounded px-3 py-2" />
+                </label>
+                <label className="text-sm">صفة التوقيع
+                  <input value={printConfig.signatureTitle} onChange={e => updatePrintConfig({ signatureTitle: e.target.value })} className="mt-1 w-full bg-gray-700 border border-gray-600 rounded px-3 py-2" />
+                </label>
+                <label className="text-sm">ملاحظات آخر الفاتورة
+                  <textarea value={printConfig.notes} onChange={e => updatePrintConfig({ notes: e.target.value })} className="mt-1 w-full bg-gray-700 border border-gray-600 rounded px-3 py-2" rows={2} placeholder="تظهر في آخر الفاتورة" />
+                </label>
+              </div>
+              <div className="flex flex-wrap gap-3 mb-4">
+                <label className="flex items-center gap-2"><input type="checkbox" checked={printConfig.showTotal} onChange={e => updatePrintConfig({ showTotal: e.target.checked })} /> إظهار الإجمالي</label>
+                <label className="flex items-center gap-2"><input type="checkbox" checked={printConfig.showWeight} onChange={e => updatePrintConfig({ showWeight: e.target.checked })} /> إظهار إجمالي الوزن</label>
+              </div>
+              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                {columnOptions.map(column => {
+                  const selected = printConfig.columns.includes(column.id);
+                  return <div key={column.id} className="flex items-center gap-2">
+                    <label className="flex items-center gap-2 min-w-24"><input type="checkbox" checked={selected} onChange={() => toggleColumn(column.id)} /> {column.label}</label>
+                    {selected && <input value={printConfig.columnLabels[column.id] || ''} onChange={e => updatePrintConfig({ columnLabels: { ...printConfig.columnLabels, [column.id]: e.target.value } })} className="flex-1 min-w-24 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm" placeholder="عنوان الطباعة" />}
+                  </div>;
+                })}
+              </div>
+            </div>
+            <div className="bg-gray-800 rounded-xl p-4 border border-gray-700">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-gray-400 text-xs mb-1">حجم الورقة</label>
+                  <select value={printPageSize} onChange={(e) => setPrintPageSize(e.target.value)} className="w-full bg-gray-700 border border-gray-600 text-white px-3 py-2 rounded-lg text-sm">
+                    <option value="A5">A5</option>
+                    <option value="A4">A4</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-gray-400 text-xs mb-1">اتجاه الطباعة</label>
+                  <select value={printOrientation} onChange={(e) => setPrintOrientation(e.target.value)} className="w-full bg-gray-700 border border-gray-600 text-white px-3 py-2 rounded-lg text-sm">
+                    <option value="portrait">عمودي</option>
+                    <option value="landscape">أفقي</option>
+                  </select>
+                </div>
+              </div>
+            </div>
             <button
               onClick={handlePrint}
               className="w-full bg-gradient-to-r from-yellow-600 to-yellow-500 text-gray-900 font-bold py-4 rounded-xl flex items-center justify-center gap-2 shadow-xl hover:from-yellow-700 hover:to-yellow-600 transition-all"
@@ -173,16 +185,11 @@ const InvoicePage: React.FC = () => {
 
       {/* الفاتورة */}
       <div className="bg-white text-gray-900 shadow-2xl overflow-hidden print:shadow-none" id="invoice">
-
         {/* الهيدر */}
         <div className="text-center p-4">
-          <div id="invoice-qr" className="hidden"></div>
-          <img src="/logo.png" alt="الحمروني" className="w-20 h-20 mx-auto mb-1 rounded-full border-2 border-gray-300" />
+          <img src="/logo1.png" alt="الحمروني" className="w-20 h-20 mx-auto mb-1 rounded-full border-2 border-gray-300" />
           <h1 className="text-2xl font-black text-gray-900 tracking-wide">مجوهرات الحمروني</h1>
-          <p className="text-[10px] text-gray-600">لإستيراد الحُليّ والمجوهرات والأحجار الكريمة والمعادن الثمينة (ذ-م-م)</p>
-          <div className="mt-2 flex justify-center">
-            <QRCodeSVG value={`INV-${invoice.invoice_number}-${invoice.total_amount}-${invoice.customer_name || 'CASH'}`} size={60} bgColor="white" fgColor="black" level="M" />
-          </div>
+          <p className="text-[10px] text-gray-600">للمجوهرات والأحجار الكريمة والمعادن الثمينة (ذ.م.م)</p>
         </div>
 
         {/* التاريخ ورقم الفاتورة */}
@@ -194,7 +201,31 @@ const InvoicePage: React.FC = () => {
         {/* السيد */}
         <div className="mb-3 text-[10px] px-4">
           <span className="font-bold">السيد: </span>
-          <span className="border-b border-gray-400 px-4 font-bold">{invoice.customer_name || '─────────────────────────────'}</span>
+          {isEditing ? (
+            <span className="inline-flex items-center gap-1">
+              <input
+                type="text"
+                value={editCustomerName}
+                onChange={(e) => setEditCustomerName(e.target.value)}
+                className="border border-blue-400 rounded px-2 py-1 text-[10px] font-bold w-48"
+                placeholder="اسم العميل"
+                autoFocus
+              />
+              <button onClick={saveEdit} className="p-1 bg-green-500 text-white rounded hover:bg-green-600">
+                <Save className="w-3 h-3" />
+              </button>
+              <button onClick={() => setIsEditing(false)} className="p-1 bg-gray-400 text-white rounded hover:bg-gray-500">
+                ✕
+              </button>
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1">
+              <span className="border-b border-gray-400 px-4 font-bold">{invoice.customer_name || '─────────────────────────────'}</span>
+              <button onClick={startEditing} className="p-1 text-blue-500 hover:text-blue-700" title="تعديل اسم العميل">
+                <Edit2 className="w-3 h-3" />
+              </button>
+            </span>
+          )}
         </div>
 
         <div className="border-t-2 border-gray-900 mx-4 mb-0"></div>
@@ -234,6 +265,13 @@ const InvoicePage: React.FC = () => {
                 <td className="py-1.5 px-1 text-center border-l border-gray-300 font-bold">{invoice.total_amount.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
                 <td></td>
               </tr>
+              <tr className="border-b border-gray-300">
+                <td colSpan={4} className="py-1.5 px-1 border-l border-gray-300 text-center font-bold">إجمالي الوزن (غ):</td>
+                <td className="py-1.5 px-1 text-center border-l border-gray-300 font-bold">
+                  {invoice.items.reduce((sum, it) => sum + (it.weight || 0) * (it.quantity || 1), 0).toFixed(2)}
+                </td>
+                <td></td>
+              </tr>
             </tbody>
           </table>
         </div>
@@ -242,7 +280,7 @@ const InvoicePage: React.FC = () => {
         <div className="mx-4 mt-3 text-[10px] border border-gray-400 p-2">
           <div className="flex items-center gap-2">
             <span className="font-bold">بالحروف:</span>
-            <span className="font-bold text-gray-800">{totalInWords}</span>
+            <span className="font-bold text-gray-800">{invoice.total_amount > 0 ? numberToArabicWords(invoice.total_amount) : 'صفر'}</span>
           </div>
         </div>
 

@@ -15,10 +15,6 @@ import {
   ChevronDown,
   ChevronUp,
   Eye,
-  Users,
-  Facebook,
-  Clock,
-  Zap,
 } from 'lucide-react';
 import {
   LineChart as RechartsLineChart,
@@ -40,15 +36,14 @@ import {
   fetchGoldPrices,
   calculateKaratPrices,
   analyzePriceChange,
-  analyzeMarketSentiment,
-  predictNextPrice,
   getPriceHistory,
   GoldPriceData,
   PriceHistory,
 } from '../services/goldPriceApi';
 import { getSystemSettings } from '../services/settings';
-import { jewelryApi, formatNumber, formatCurrency } from '../services/supabase';
+import { jewelryApi, formatNumber, formatCurrency, supabase, isSupabaseAvailable } from '../services/supabase';
 import { JewelryItem } from '../services/supabase';
+import { realtimeSync } from '../services/realtimeSync';
 
 interface SalesStats {
   totalSales: number;
@@ -92,7 +87,22 @@ const DashboardPage: React.FC = () => {
     loadData();
     // Auto-refresh every 5 minutes
     const interval = setInterval(loadGoldPrices, 300000);
-    return () => clearInterval(interval);
+    
+    // Listen for realtime updates from other devices
+    const unsubInvoices = realtimeSync.on('invoices_updated', () => {
+      console.log('🧾 Invoices updated on dashboard - refreshing...');
+      loadSalesStats();
+    });
+    const unsubItems = realtimeSync.on('items_updated', () => {
+      console.log('📦 Items updated on dashboard - refreshing...');
+      loadSalesStats();
+    });
+    
+    return () => {
+      clearInterval(interval);
+      unsubInvoices();
+      unsubItems();
+    };
   }, []);
 
   const loadData = async () => {
@@ -102,36 +112,56 @@ const DashboardPage: React.FC = () => {
   };
 
   const loadGoldPrices = async () => {
-    // Fetch real prices from API with fallback
+    // Fetch real prices from API
     const prices = await fetchGoldPrices();
     setGoldPrices(prices);
 
-    // Get price history (real or generated)
+    // Get real price history from localStorage
     const history = getPriceHistory(30);
     setPriceHistory(history);
     setLastUpdate(new Date());
 
-    // Analyze market sentiment with real data
-    const analysis = analyzeMarketSentiment(history, history);
+    // No fake AI - just show real data
     setMarketAnalysis({
-      sentiment: analysis.sentiment,
-      score: analysis.score,
-      trend: analysis.trend,
-      recommendation: analysis.recommendation,
+      sentiment: 'neutral',
+      score: 0,
+      trend: '0',
+      recommendation: 'البيانات من MetalPriceAPI فقط',
     });
 
-    // Get price prediction
-    const pred = predictNextPrice(history);
-    setPrediction(pred);
+    // No fake predictions
+    setPrediction(null);
   };
 
   
   const loadSalesStats = async () => {
-    // Load REAL sales data from localStorage
+    // Load sales data from Supabase (server) with localStorage fallback
     try {
-      const savedInvoices = JSON.parse(localStorage.getItem('saved_invoices') || '[]');
-      const draftInvoices = JSON.parse(localStorage.getItem('draft_invoices') || '[]');
-      const allInvoices = [...savedInvoices, ...draftInvoices];
+      let allInvoices: any[] = [];
+      
+      // Try Supabase first
+      if (isSupabaseAvailable() && supabase) {
+        try {
+          const { data, error } = await supabase
+            .from('sale_invoices')
+            .select('*')
+            .order('created_at', { ascending: false });
+          
+          if (!error && data && data.length > 0) {
+            allInvoices = data;
+            localStorage.setItem('saved_invoices', JSON.stringify(data));
+          }
+        } catch (e) {
+          console.log('Supabase error, using cache:', e);
+        }
+      }
+      
+      // Fallback to localStorage cache
+      if (allInvoices.length === 0) {
+        const savedInvoices = JSON.parse(localStorage.getItem('saved_invoices') || '[]');
+        const draftInvoices = JSON.parse(localStorage.getItem('draft_invoices') || '[]');
+        allInvoices = [...savedInvoices, ...draftInvoices];
+      }
 
       if (allInvoices.length === 0) {
         setSalesStats({
@@ -177,7 +207,7 @@ const DashboardPage: React.FC = () => {
       // Sales trend by day
       const salesTrend: Record<string, number> = {};
       allInvoices.forEach(inv => {
-        const date = new Date(inv.created_at).toLocaleDateString('ar-LY', { month: 'short', day: 'numeric' });
+        const date = new Date(inv.created_at).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' });
         if (!salesTrend[date]) salesTrend[date] = 0;
         salesTrend[date] += inv.total_amount || 0;
       });
@@ -251,8 +281,8 @@ const DashboardPage: React.FC = () => {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-yellow-400">لوحة التحكم الذكية</h1>
-          <p className="text-gray-400 text-sm">تحليلات متقدمة بالذكاء الاصطناعي</p>
+          <h1 className="text-2xl font-bold text-yellow-400">لوحة التحكم</h1>
+          <p className="text-gray-400 text-sm">بيانات حقيقية من MetalPriceAPI</p>
         </div>
         <button
           onClick={loadData}
@@ -263,60 +293,7 @@ const DashboardPage: React.FC = () => {
         </button>
       </div>
 
-      {/* AI Market Analysis */}
-      {marketAnalysis && (
-        <div className="bg-gradient-to-r from-purple-900/50 to-indigo-900/50 rounded-2xl p-6 border border-purple-500/30">
-          <div className="flex items-center gap-3 mb-4">
-            <Brain className="w-8 h-8 text-purple-400" />
-            <div>
-              <h2 className="text-xl font-bold text-white">تحليل السوق بالذكاء الاصطناعي</h2>
-              <p className="text-purple-300 text-sm">آخر تحديث: {lastUpdate.toLocaleTimeString('ar-LY')}</p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="bg-purple-900/30 rounded-xl p-4 text-center">
-              <div className="flex items-center justify-center mb-2">
-                {marketAnalysis.sentiment === 'bullish' ? (
-                  <TrendingUp className="w-8 h-8 text-green-400" />
-                ) : marketAnalysis.sentiment === 'bearish' ? (
-                  <TrendingDown className="w-8 h-8 text-red-400" />
-                ) : (
-                  <Minus className="w-8 h-8 text-gray-400" />
-                )}
-              </div>
-              <p className="text-purple-300 text-xs">المزاج العام</p>
-              <p className="text-xl font-bold text-white">
-                {marketAnalysis.sentiment === 'bullish'
-                  ? 'صاعد 📈'
-                  : marketAnalysis.sentiment === 'bearish'
-                  ? 'هابط 📉'
-                  : 'مستقر ➡️'}
-              </p>
-            </div>
-
-            <div className="bg-purple-900/30 rounded-xl p-4 text-center">
-              <p className="text-purple-300 text-xs">درجة الثقة</p>
-              <p className="text-3xl font-bold text-white">{marketAnalysis.score}%</p>
-            </div>
-
-            <div className="bg-purple-900/30 rounded-xl p-4 text-center">
-              <p className="text-purple-300 text-xs">نسبة التغيير</p>
-              <p className={`text-xl font-bold ${parseFloat(marketAnalysis.trend) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                {parseFloat(marketAnalysis.trend) >= 0 ? '+' : ''}
-                {marketAnalysis.trend}%
-              </p>
-            </div>
-
-            <div className="bg-purple-900/30 rounded-xl p-4 text-center">
-              <p className="text-purple-300 text-xs">التوصية</p>
-              <p className="text-sm font-bold text-yellow-400">{marketAnalysis.recommendation}</p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Gold Prices & Prediction */}
+      {/* Gold Prices - Real Data Only */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Current Gold Prices */}
         <div className="bg-gray-800 rounded-2xl p-6 border border-gray-700">
@@ -354,34 +331,6 @@ const DashboardPage: React.FC = () => {
               </span>
             </div>
           </div>
-        </div>
-
-        {/* Price Prediction */}
-        <div className="bg-gray-800 rounded-2xl p-6 border border-gray-700">
-          <div className="flex items-center gap-2 mb-4">
-            <Target className="w-6 h-6 text-green-400" />
-            <h3 className="text-lg font-bold text-green-400">توقعات الأسعار</h3>
-            <span className="text-xs bg-green-600/30 text-green-300 px-2 py-1 rounded-full">
-              {prediction?.confidence === 'high' ? 'ثقة عالية' : 'ثقة متوسطة'}
-            </span>
-          </div>
-
-          {prediction && (
-            <div className="space-y-4">
-              <div className="bg-green-900/30 rounded-xl p-4 border border-green-600/30">
-                <p className="text-green-300 text-sm mb-1"> السعر المتوقع غداً</p>
-                <p className="text-3xl font-bold text-green-400">
-                  {formatNumber(prediction.tomorrow)} د.ل
-                </p>
-              </div>
-              <div className="bg-blue-900/30 rounded-xl p-4 border border-blue-600/30">
-                <p className="text-blue-300 text-sm mb-1"> السعر المتوقع الأسبوع القادم</p>
-                <p className="text-2xl font-bold text-blue-400">
-                  {formatNumber(prediction.nextWeek)} د.ل
-                </p>
-              </div>
-            </div>
-          )}
         </div>
       </div>
 

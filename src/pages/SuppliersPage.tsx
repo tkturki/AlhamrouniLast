@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { Plus, Edit2, Trash2, Search, Phone, MapPin, X, DollarSign, Scale, Truck, Filter, ChevronDown } from 'lucide-react';
 import { getSuppliers, addSupplier, updateSupplier, deleteSupplier, searchSuppliers, Supplier } from '../services/suppliers';
 
@@ -312,7 +312,7 @@ const SuppliersPage: React.FC = () => {
                 <div>
                   <label className="block text-sm text-gray-400 mb-1">القيمة الإجمالية (د.ل)</label>
                   <input
-                    type="number"
+                    type="text" inputMode="decimal"
                     name="totalValue"
                     step="0.01"
                     defaultValue={editingSupplier?.totalValue}
@@ -322,7 +322,7 @@ const SuppliersPage: React.FC = () => {
                 <div>
                   <label className="block text-sm text-gray-400 mb-1">الوزن الإجمالي (غم)</label>
                   <input
-                    type="number"
+                    type="text" inputMode="decimal"
                     name="totalWeight"
                     step="0.01"
                     defaultValue={editingSupplier?.totalWeight}

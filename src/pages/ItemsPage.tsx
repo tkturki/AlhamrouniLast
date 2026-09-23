@@ -15,17 +15,25 @@ const ItemsPage: React.FC = () => {
 
   const loadItems = async () => {
     try {
-      // Load from localStorage first (primary source)
-      const localData = localStorage.getItem('jewelry_items');
-      if (localData) {
-        setItems(JSON.parse(localData));
-      } else {
-        // Fallback to API
-        const data = await jewelryApi.getAllItems();
+      // Load from Supabase first (data lives on server)
+      const data = await jewelryApi.getAllItems();
+      if (data && data.length > 0) {
+        localStorage.setItem('jewelry_items', JSON.stringify(data));
         setItems(data);
+      } else {
+        // Fallback to localStorage cache
+        const localData = localStorage.getItem('jewelry_items');
+        if (localData) {
+          setItems(JSON.parse(localData));
+        }
       }
     } catch (error) {
       console.error('Error loading items:', error);
+      // Fallback to localStorage cache
+      const localData = localStorage.getItem('jewelry_items');
+      if (localData) {
+        setItems(JSON.parse(localData));
+      }
     }
     setLoading(false);
   };

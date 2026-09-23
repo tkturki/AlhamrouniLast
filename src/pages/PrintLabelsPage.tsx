@@ -36,17 +36,24 @@ const PrintLabelsPage: React.FC = () => {
   const loadItems = async () => {
     setLoading(true);
     try {
-      // Load from localStorage first
-      const localData = localStorage.getItem('jewelry_items');
-      if (localData) {
-        setItems(JSON.parse(localData));
-      } else {
-        // Fallback to API
-        const allItems = await jewelryApi.getAllItems();
+      // Load from Supabase first (data lives on server)
+      const allItems = await jewelryApi.getAllItems();
+      if (allItems && allItems.length > 0) {
+        localStorage.setItem('jewelry_items', JSON.stringify(allItems));
         setItems(allItems);
+      } else {
+        // Fallback to localStorage cache
+        const localData = localStorage.getItem('jewelry_items');
+        if (localData) {
+          setItems(JSON.parse(localData));
+        }
       }
     } catch (error) {
       console.error('Error loading items:', error);
+      const localData = localStorage.getItem('jewelry_items');
+      if (localData) {
+        setItems(JSON.parse(localData));
+      }
     }
     setLoading(false);
   };

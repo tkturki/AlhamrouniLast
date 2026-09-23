@@ -1,6 +1,9 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { QrCode, Plus, Package, Check, Camera, X, Search, Trash2, Edit2, ChevronDown, ChevronUp } from 'lucide-react';
-import { modelNamesStorage, formatNumber, formatCurrency } from '../services/supabase';
+﻿import React, { useState, useRef, useEffect } from 'react';
+import { QrCode, Plus, Package, Check, Camera, X, Search, Trash2, Edit2, ChevronDown, ChevronUp, AlertTriangle, Settings, FolderOpen, CheckCircle } from 'lucide-react';
+import { modelNamesStorage, formatNumber, formatCurrency, jewelryApi, isSupabaseAvailable } from '../services/supabase';
+import { imageStorage } from '../services/imageStorage';
+import { getSystemSettings, GoldPricesSettings, loadSettingsFromSupabase } from '../services/settings';
+import ImageBrowser from '../components/ImageBrowser';
 
 // Gold Category Types
 export interface GoldCategory {
@@ -52,37 +55,43 @@ const goldCategoriesStorage = {
     localStorage.setItem('goldCategories_v2', JSON.stringify(categories));
   },
 
-  addItem: (categoryId: string, item: string) => {
-    const categories = goldCategoriesStorage.getAll();
-    const category = categories.find(c => c.id === categoryId);
-    if (category && !category.items.includes(item)) {
-      category.items.push(item);
-      goldCategoriesStorage.save(categories);
-    }
-    return categories;
-  },
-
-  removeItem: (categoryId: string, item: string) => {
-    const categories = goldCategoriesStorage.getAll();
-    const category = categories.find(c => c.id === categoryId);
-    if (category) {
-      category.items = category.items.filter(i => i !== item);
-      goldCategoriesStorage.save(categories);
-    }
-    return categories;
-  },
-
-  updateItem: (categoryId: string, oldItem: string, newItem: string) => {
-    const categories = goldCategoriesStorage.getAll();
-    const category = categories.find(c => c.id === categoryId);
-    if (category) {
-      const index = category.items.indexOf(oldItem);
-      if (index !== -1) {
-        category.items[index] = newItem;
-        goldCategoriesStorage.save(categories);
+  addItem: (categoryId: string, item: string): GoldCategory[] => {
+    const data = localStorage.getItem('goldCategories_v2');
+    const categories: GoldCategory[] = data ? JSON.parse(data) : [];
+    const updated = categories.map(c => {
+      if (c.id === categoryId && !c.items.includes(item)) {
+        return { ...c, items: [...c.items, item] };
       }
-    }
-    return categories;
+      return c;
+    });
+    localStorage.setItem('goldCategories_v2', JSON.stringify(updated));
+    return updated;
+  },
+
+  removeItem: (categoryId: string, item: string): GoldCategory[] => {
+    const data = localStorage.getItem('goldCategories_v2');
+    const categories: GoldCategory[] = data ? JSON.parse(data) : [];
+    const updated = categories.map(c => {
+      if (c.id === categoryId) {
+        return { ...c, items: c.items.filter(i => i !== item) };
+      }
+      return c;
+    });
+    localStorage.setItem('goldCategories_v2', JSON.stringify(updated));
+    return updated;
+  },
+
+  updateItem: (categoryId: string, oldItem: string, newItem: string): GoldCategory[] => {
+    const data = localStorage.getItem('goldCategories_v2');
+    const categories: GoldCategory[] = data ? JSON.parse(data) : [];
+    const updated = categories.map(c => {
+      if (c.id === categoryId) {
+        return { ...c, items: c.items.map(i => i === oldItem ? newItem : i) };
+      }
+      return c;
+    });
+    localStorage.setItem('goldCategories_v2', JSON.stringify(updated));
+    return updated;
   }
 };
 
@@ -145,6 +154,64 @@ const statusStorage = {
   }
 };
 
+// Get price per gram based on karat and metal type
+const getPricePerGram = (karat: string, metalType: string, goldPrices: GoldPricesSettings): number => {
+  const isSilver = metalType === 'فضة' || metalType === 'فضة مطلي' || metalType === 'فضة عادي';
+  if (isSilver) return goldPrices.silver;
+  switch (karat) {
+    case '24': return goldPrices.gold24k;
+    case '21': return goldPrices.gold21k;
+    case '18': return goldPrices.gold18k;
+    default: return goldPrices.gold21k;
+  }
+};
+
+// Check if gold prices were updated today
+const isGoldPriceUpdatedToday = (lastUpdated: string): boolean => {
+  const today = new Date().toDateString();
+  const updated = new Date(lastUpdated).toDateString();
+  return today === updated;
+};
+
+// Gold price warning modal component
+const GoldPriceWarningModal: React.FC<{
+  lastUpdated: string;
+  pricePerGram: number;
+  onUpdatePrice: () => void;
+  onSkip: () => void;
+}> = ({ lastUpdated, pricePerGram, onUpdatePrice, onSkip }) => {
+  const date = new Date(lastUpdated).toLocaleDateString('en-CA');
+  return (
+    <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+      <div className="bg-gray-900 rounded-2xl p-6 w-full max-w-md border border-yellow-600/30">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-12 h-12 bg-yellow-600/20 rounded-full flex items-center justify-center">
+            <AlertTriangle className="w-6 h-6 text-yellow-400" />
+          </div>
+          <div>
+            <h3 className="text-lg font-bold text-yellow-400">تحديث أسعار الذهب</h3>
+            <p className="text-gray-400 text-sm">الأسعار لم يتم تحديثها اليوم</p>
+          </div>
+        </div>
+        <div className="bg-gray-800 rounded-lg p-4 mb-4">
+          <p className="text-gray-300 text-sm">آخر تحديث: <span className="text-yellow-400 font-bold" dir="ltr">{date}</span></p>
+          <p className="text-gray-300 text-sm mt-1">سعر الجرام الحالي: <span className="text-green-400 font-bold" dir="ltr" lang="en">{formatCurrency(pricePerGram)}</span></p>
+        </div>
+        <p className="text-gray-400 text-sm mb-4">هل تريد تحديث أسعار الذهب الآن؟</p>
+        <div className="flex gap-3">
+          <button onClick={onUpdatePrice} className="flex-1 bg-yellow-600 hover:bg-yellow-500 text-gray-900 font-bold py-3 rounded-lg flex items-center justify-center gap-2">
+            <Settings className="w-4 h-4" />
+            نعم، تحديث الأسعار
+          </button>
+          <button onClick={onSkip} className="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 rounded-lg">
+            تخطي
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const AddItemPage: React.FC = () => {
   const [formData, setFormData] = useState({
     item_type: 'G',
@@ -154,21 +221,25 @@ const AddItemPage: React.FC = () => {
     metal_type: 'اصفر',
     status: 'جديد',
     model_name: '',
+    item_code: '',
     weight: '',
-    purchase_price: '',
+    purchase_price: '1',
     sale_price: '',
     price: '',
     notes: '',
     stock_qty: '1',
+    barcode: '',
   });
 
   const [recentItems, setRecentItems] = useState<any[]>([]);
   const [showSuccess, setShowSuccess] = useState(false);
   const [loading, setLoading] = useState(false);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [showImageBrowser, setShowImageBrowser] = useState(false);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [modelSuggestions, setModelSuggestions] = useState<string[]>([]);
   const [showModelDropdown, setShowModelDropdown] = useState(false);
+  const [scanMessage, setScanMessage] = useState('');
 
   // Expanded sections
   const [expandedCategories, setExpandedCategories] = useState<string[]>(['arabic']);
@@ -186,6 +257,55 @@ const AddItemPage: React.FC = () => {
   const [editingItemName, setEditingItemName] = useState('');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Gold price state
+  const [goldPrices, setGoldPrices] = useState<GoldPricesSettings>(getSystemSettings().goldPrices);
+  const [showPriceWarning, setShowPriceWarning] = useState(false);
+  const [showPriceUpdate, setShowPriceUpdate] = useState(false);
+  const [pricePerGram, setPricePerGram] = useState(0);
+  const [showSettingsRedirect, setShowSettingsRedirect] = useState(false);
+  const [tempGold21k, setTempGold21k] = useState('');
+  const [tempGold18k, setTempGold18k] = useState('');
+  const [tempGold24k, setTempGold24k] = useState('');
+  const [tempSilver, setTempSilver] = useState('');
+
+  // Load gold prices and check freshness
+  useEffect(() => {
+    const loadPrices = async () => {
+      await loadSettingsFromSupabase();
+      const settings = getSystemSettings();
+      setGoldPrices(settings.goldPrices);
+      const ppg = getPricePerGram(formData.karat, formData.metal_type, settings.goldPrices);
+      setPricePerGram(ppg);
+
+      // Check if price was updated today
+      if (settings.goldPrices.isCustom && !isGoldPriceUpdatedToday(settings.goldPrices.lastUpdated)) {
+        setShowPriceWarning(true);
+      }
+    };
+    loadPrices();
+  }, [formData.karat, formData.metal_type]);
+
+  // Auto-calculate price when weight, pricePerGram or count changes
+  useEffect(() => {
+    const weight = parseFloat(formData.weight) || 0;
+    const count = parseInt(formData.stock_qty) || 1;
+    if (weight > 0 && pricePerGram > 0) {
+      const totalPrice = (weight * count) * pricePerGram;
+      setFormData(prev => ({
+        ...prev,
+        price: (weight * pricePerGram).toFixed(2),
+        sale_price: totalPrice.toFixed(2),
+      }));
+    }
+  }, [formData.weight, formData.stock_qty, pricePerGram]);
+
+  // Set model_name default to gold_item
+  useEffect(() => {
+    if (formData.gold_item && !formData.model_name) {
+      setFormData(prev => ({ ...prev, model_name: formData.gold_item }));
+    }
+  }, [formData.gold_item]);
 
   // Load model names from storage
   useEffect(() => {
@@ -211,11 +331,85 @@ const AddItemPage: React.FC = () => {
     }
   }, [formData.model_name]);
 
-  // Update gold_item when gold_category changes
+  // Convert physical key code to UPPERCASE English character (works regardless of keyboard layout)
+  const getCodeChar = (code: string, shiftKey: boolean): string | null => {
+    const map: Record<string, string> = {
+      'Digit0':'0','Digit1':'1','Digit2':'2','Digit3':'3','Digit4':'4',
+      'Digit5':'5','Digit6':'6','Digit7':'7','Digit8':'8','Digit9':'9',
+      'KeyA':'A','KeyB':'B','KeyC':'C','KeyD':'D','KeyE':'E','KeyF':'F',
+      'KeyG':'G','KeyH':'H','KeyI':'I','KeyJ':'J','KeyK':'K','KeyL':'L',
+      'KeyM':'M','KeyN':'N','KeyO':'O','KeyP':'P','KeyQ':'Q','KeyR':'R',
+      'KeyS':'S','KeyT':'T','KeyU':'U','KeyV':'V','KeyW':'W','KeyX':'X',
+      'KeyY':'Y','KeyZ':'Z',
+      'Minus':'-','Equal':'=',
+      'Semicolon':';','Quote':"'",'Backquote':'`',
+      'Comma':',','Period':'.','Slash':'/',
+    };
+    if (shiftKey) {
+      const shiftMap: Record<string, string> = {
+        'Digit1':'!','Digit2':'@','Digit3':'#','Digit4':'$','Digit5':'%',
+        'Digit6':'^','Digit7':'&','Digit8':'*','Digit9':'(','Digit0':')',
+        'Minus':'_','Equal':'+',
+        'Semicolon':':','Quote':'"','Backquote':'~',
+        'Comma':'<','Period':'>','Slash':'?',
+      };
+      return shiftMap[code] ?? null;
+    }
+    return map[code] ?? null;
+  };
+
+  // Barcode Reader Support - USB scanners act like keyboards
+  useEffect(() => {
+    let barcodeBuffer = '';
+    let barcodeTimeout: ReturnType<typeof setTimeout> | null = null;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) {
+        return;
+      }
+
+      if (e.key === 'Enter') {
+        if (barcodeBuffer.length >= 3) {
+          setFormData(prev => ({ ...prev, barcode: barcodeBuffer }));
+          setScanMessage(`تم قراءة الكود: ${barcodeBuffer}`);
+          setTimeout(() => setScanMessage(''), 3000);
+        }
+        barcodeBuffer = '';
+        return;
+      }
+
+      const char = getCodeChar(e.code, e.shiftKey);
+      if (char !== null) {
+        barcodeBuffer += char;
+        if (barcodeTimeout) clearTimeout(barcodeTimeout);
+        barcodeTimeout = setTimeout(() => {
+          if (barcodeBuffer.length >= 3) {
+            setFormData(prev => ({ ...prev, barcode: barcodeBuffer }));
+            setScanMessage(`تم قراءة الكود: ${barcodeBuffer}`);
+            setTimeout(() => setScanMessage(''), 3000);
+          }
+          barcodeBuffer = '';
+        }, 100);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      if (barcodeTimeout) clearTimeout(barcodeTimeout);
+    };
+  }, []);
+
+  // Update gold_item when gold_category changes and auto-set model_name
   useEffect(() => {
     const category = goldCategories.find(c => c.id === formData.gold_category);
     if (category && category.items.length > 0 && !category.items.includes(formData.gold_item)) {
-      setFormData(prev => ({ ...prev, gold_item: category.items[0] }));
+      const newGoldItem = category.items[0];
+      setFormData(prev => ({
+        ...prev,
+        gold_item: newGoldItem,
+        model_name: prev.model_name === prev.gold_item || !prev.model_name ? newGoldItem : prev.model_name
+      }));
     }
   }, [formData.gold_category, goldCategories]);
 
@@ -273,8 +467,8 @@ const AddItemPage: React.FC = () => {
       metalTypesStorage.add(newOptionValue.trim());
       setMetalTypes(metalTypesStorage.getAll());
       setFormData({ ...formData, metal_type: newOptionValue.trim() });
-    } else if (type === 'categoryItem' && showAddModal) {
-      const updated = goldCategoriesStorage.addItem(showAddModal, newOptionValue.trim());
+    } else {
+      const updated = goldCategoriesStorage.addItem(type, newOptionValue.trim());
       setGoldCategories(updated);
       setFormData(prev => ({ ...prev, gold_item: newOptionValue.trim() }));
     }
@@ -332,9 +526,11 @@ const AddItemPage: React.FC = () => {
         modelNamesStorage.add(formData.model_name.trim());
       }
 
-      const item = {
-        id: Date.now(),
-        item_code: generateItemCode(),
+      const weight = parseFloat(formData.weight);
+      const pricePerGram = getPricePerGram(formData.karat, formData.metal_type, goldPrices);
+      const calculatedPrice = weight * pricePerGram;
+
+      const itemData = {
         item_type: formData.item_type,
         karat: formData.karat,
         gold_category: formData.gold_category,
@@ -342,23 +538,46 @@ const AddItemPage: React.FC = () => {
         metal_type: formData.metal_type,
         status: formData.status,
         model_name: formData.model_name,
-        weight: parseFloat(formData.weight),
+        weight: weight,
         purchase_price: parseFloat(formData.purchase_price) || 0,
         sale_price: parseFloat(formData.sale_price) || 0,
-        price: parseFloat(formData.price),
+        price: calculatedPrice,
+        price_per_gram: pricePerGram,
         notes: formData.notes,
         stock_qty: parseInt(formData.stock_qty),
+        barcode: formData.barcode || '',
         image_url: imagePreview || null,
         created_at: new Date().toISOString(),
       };
 
-      // Save to localStorage
-      const existingItems = JSON.parse(localStorage.getItem('jewelry_items') || '[]');
-      existingItems.push(item);
-      localStorage.setItem('jewelry_items', JSON.stringify(existingItems));
+      // Save to Supabase first, then fallback to localStorage
+      let savedItem: any = null;
+      if (isSupabaseAvailable()) {
+        try {
+          savedItem = await jewelryApi.addItem(itemData);
+          console.log('Saved to Supabase:', savedItem.item_code);
+        } catch (err) {
+          console.log('Supabase error, saving to localStorage:', err);
+        }
+      }
 
-      // Update recent items
-      const recent = [item, ...recentItems.slice(0, 4)];
+      // Also save to localStorage as backup
+      if (!savedItem) {
+        const existingItems = JSON.parse(localStorage.getItem('jewelry_items') || '[]');
+        savedItem = {
+          ...itemData,
+          id: Date.now(),
+          item_code: generateItemCode(),
+        };
+        existingItems.push(savedItem);
+        localStorage.setItem('jewelry_items', JSON.stringify(existingItems));
+      }
+
+      if (imagePreview && imagePreview.startsWith('data:image')) {
+        await imageStorage.save(savedItem.item_code, imagePreview);
+      }
+
+      const recent = [savedItem, ...recentItems.slice(0, 4)];
       setRecentItems(recent);
       localStorage.setItem('recent_items', JSON.stringify(recent));
 
@@ -368,10 +587,11 @@ const AddItemPage: React.FC = () => {
         ...formData,
         model_name: '',
         weight: '',
-        purchase_price: '',
+    purchase_price: '1',
         sale_price: '',
         price: '',
         notes: '',
+        barcode: '',
       });
       removeImage();
     } catch (error) {
@@ -393,6 +613,95 @@ const AddItemPage: React.FC = () => {
 
   return (
     <div className="max-w-4xl mx-auto">
+      {/* Gold Price Warning Modal */}
+      {showPriceWarning && (
+        <GoldPriceWarningModal
+          lastUpdated={goldPrices.lastUpdated}
+          pricePerGram={pricePerGram}
+          onUpdatePrice={() => {
+            setShowPriceWarning(false);
+            setShowPriceUpdate(true);
+          }}
+          onSkip={() => setShowPriceWarning(false)}
+        />
+      )}
+
+      {/* Inline Gold Price Update Modal */}
+      {showPriceUpdate && (
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+          <div className="bg-gray-900 rounded-2xl p-6 w-full max-w-md border border-yellow-600/30">
+            <h3 className="text-lg font-bold text-yellow-400 mb-4">تحديث أسعار الذهب اليدوي</h3>
+            <p className="text-gray-400 text-sm mb-4">أدخل أسعار الذهب اليومية (د.ل/جرام)</p>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">ذهب 24 قيراط</label>
+                <input type="text" inputMode="decimal" step="0.01" value={tempGold24k} onChange={(e) => setTempGold24k(e.target.value)} placeholder={goldPrices.gold24k.toString()} className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white" dir="ltr" />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">ذهب 21 قيراط</label>
+                <input type="text" inputMode="decimal" step="0.01" value={tempGold21k} onChange={(e) => setTempGold21k(e.target.value)} placeholder={goldPrices.gold21k.toString()} className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white" dir="ltr" />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">ذهب 18 قيراط</label>
+                <input type="text" inputMode="decimal" step="0.01" value={tempGold18k} onChange={(e) => setTempGold18k(e.target.value)} placeholder={goldPrices.gold18k.toString()} className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white" dir="ltr" />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">فضة</label>
+                <input type="text" inputMode="decimal" step="0.01" value={tempSilver} onChange={(e) => setTempSilver(e.target.value)} placeholder={goldPrices.silver.toString()} className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white" dir="ltr" />
+              </div>
+            </div>
+            <div className="flex gap-3 mt-6">
+              <button onClick={() => {
+                const newPrices: GoldPricesSettings = {
+                  ...goldPrices,
+                  gold24k: parseFloat(tempGold24k) || goldPrices.gold24k,
+                  gold21k: parseFloat(tempGold21k) || goldPrices.gold21k,
+                  gold18k: parseFloat(tempGold18k) || goldPrices.gold18k,
+                  silver: parseFloat(tempSilver) || goldPrices.silver,
+                  isCustom: true,
+                  lastUpdated: new Date().toISOString(),
+                };
+                const { saveSystemSettings } = require('../services/settings');
+                saveSystemSettings({ goldPrices: newPrices });
+                setGoldPrices(newPrices);
+                const ppg = getPricePerGram(formData.karat, formData.metal_type, newPrices);
+                setPricePerGram(ppg);
+                setShowPriceUpdate(false);
+                setTempGold24k('');
+                setTempGold21k('');
+                setTempGold18k('');
+                setTempSilver('');
+              }} className="flex-1 bg-yellow-600 hover:bg-yellow-500 text-gray-900 font-bold py-3 rounded-lg">
+                حفظ الأسعار
+              </button>
+              <button onClick={() => {
+                setShowPriceUpdate(false);
+                setTempGold24k('');
+                setTempGold21k('');
+                setTempGold18k('');
+                setTempSilver('');
+              }} className="px-6 bg-gray-700 hover:bg-gray-600 text-white py-3 rounded-lg">
+                إلغاء
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Settings Redirect Modal */}
+      {showSettingsRedirect && (
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+          <div className="bg-gray-900 rounded-2xl p-6 w-full max-w-md border border-yellow-600/30 text-center">
+            <Settings className="w-12 h-12 text-yellow-400 mx-auto mb-4" />
+            <h3 className="text-lg font-bold text-yellow-400 mb-2">تحديث أسعار الذهب</h3>
+            <p className="text-gray-400 text-sm mb-4">سيتم فتح صفحة الإعدادات لتحديث الأسعار</p>
+            <button onClick={() => { window.location.href = '/settings'; }} className="w-full bg-yellow-600 hover:bg-yellow-500 text-gray-900 font-bold py-3 rounded-lg">
+              فتح الإعدادات
+            </button>
+          </div>
+        </div>
+      )}
+
       {showSuccess && (
         <div className="fixed top-20 right-4 bg-green-600 text-white px-6 py-3 rounded-lg shadow-xl flex items-center gap-2 animate-bounce z-50">
           <Check className="w-5 h-5" />
@@ -424,7 +733,7 @@ const AddItemPage: React.FC = () => {
                 placeholder="ادخل الاسم..."
                 className="w-full bg-gray-800 border border-yellow-600/30 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-yellow-500"
                 autoFocus
-                onKeyPress={(e) => e.key === 'Enter' && handleAddNewOption(showAddModal)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddNewOption(showAddModal); }}}
               />
               <div className="flex gap-3">
                 <button
@@ -435,6 +744,48 @@ const AddItemPage: React.FC = () => {
                 </button>
                 <button
                   onClick={() => { setShowAddModal(null); setNewOptionValue(''); }}
+                  className="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 rounded-lg"
+                >
+                  الغاء
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Item Modal */}
+      {editingItem && (
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+          <div className="bg-gray-900 rounded-2xl p-6 w-full max-w-md">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xl font-bold text-yellow-400">
+                تعديل عنصر - {goldCategories.find(c => c.id === editingItem.categoryId)?.name}
+              </h3>
+              <button onClick={() => { setEditingItem(null); setEditingItemName(''); }} className="text-gray-400 hover:text-white">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+            <div className="space-y-4">
+              <div className="text-gray-400 text-sm">الاسم الحالي: <span className="text-white font-bold">{editingItem.oldName}</span></div>
+              <input
+                type="text"
+                value={editingItemName}
+                onChange={(e) => setEditingItemName(e.target.value)}
+                placeholder="ادخل الاسم الجديد..."
+                className="w-full bg-gray-800 border border-yellow-600/30 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-yellow-500"
+                autoFocus
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleEditItem(editingItem.categoryId, editingItem.oldName); }}}
+              />
+              <div className="flex gap-3">
+                <button
+                  onClick={() => handleEditItem(editingItem.categoryId, editingItem.oldName)}
+                  className="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-lg"
+                >
+                  حفظ التعديل
+                </button>
+                <button
+                  onClick={() => { setEditingItem(null); setEditingItemName(''); }}
                   className="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 rounded-lg"
                 >
                   الغاء
@@ -464,16 +815,44 @@ const AddItemPage: React.FC = () => {
                 </button>
               </div>
             ) : (
-              <div className="flex flex-col items-center justify-center py-8 cursor-pointer hover:bg-gray-700/50 rounded-lg transition-all" onClick={() => fileInputRef.current?.click()}>
+              <div className="flex flex-col items-center justify-center py-8">
                 <div className="w-20 h-20 bg-yellow-600/20 rounded-full flex items-center justify-center mb-4">
                   <Camera className="w-10 h-10 text-yellow-400" />
                 </div>
-                <p className="text-gray-300 text-center mb-2">اضغط لرفع صورة القطعة</p>
-                <p className="text-gray-500 text-sm text-center">PNG, JPG حتى 5MB</p>
+                <p className="text-gray-300 text-center mb-4">اختر طريقة إضافة الصورة</p>
+                <div className="flex gap-3">
+                  <button type="button" onClick={() => fileInputRef.current?.click()} className="px-4 py-2 bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg flex items-center gap-2">
+                    <Camera className="w-5 h-5" />
+                    رفع صورة
+                  </button>
+                  <button type="button" onClick={() => setShowImageBrowser(true)} className="px-4 py-2 bg-gray-600 hover:bg-gray-500 text-white rounded-lg flex items-center gap-2">
+                    <FolderOpen className="w-5 h-5" />
+                    متصفح الصور
+                  </button>
+                </div>
+                <p className="text-gray-500 text-sm text-center mt-2">PNG, JPG حتى 5MB</p>
               </div>
             )}
             <input ref={fileInputRef} type="file" accept="image/*" onChange={handleImageSelect} className="hidden" />
           </div>
+
+          {/* Image Browser Modal */}
+          {showImageBrowser && (
+            <ImageBrowser
+              onSelect={(url) => {
+                setImagePreview(url);
+                // Auto-generate code from image filename
+                try {
+                  const filename = url.split('/').pop()?.split('?')[0] || '';
+                  const nameWithoutExt = filename.replace(/\.[^.]+$/, '').replace(/[_-]/g, ' ');
+                  if (nameWithoutExt && !formData.item_code) {
+                    setFormData(prev => ({ ...prev, item_code: nameWithoutExt }));
+                  }
+                } catch {}
+              }}
+              onClose={() => setShowImageBrowser(false)}
+            />
+          )}
 
           {/* Metal Type Selection */}
           <div className="bg-gray-700/30 rounded-xl p-4 border border-yellow-600/20">
@@ -589,7 +968,7 @@ const AddItemPage: React.FC = () => {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div>
               <label className={labelClass}>
-                العيار
+                {(formData.metal_type === 'فضة' || formData.metal_type === 'فضة مطلي' || formData.metal_type === 'فضة عادي') ? 'عيار الفضة' : 'العييار'}
                 <button type="button" onClick={() => setShowAddModal('karat')} className="text-green-400 hover:text-green-300 text-sm flex items-center gap-1 mr-2 float-left">
                   <Plus className="w-4 h-4" />
                 </button>
@@ -634,12 +1013,13 @@ const AddItemPage: React.FC = () => {
             <div>
               <label className={labelClass}>العدد</label>
               <input
-                type="number"
+                type="text" inputMode="decimal"
                 value={formData.stock_qty}
                 onChange={(e) => setFormData({ ...formData, stock_qty: e.target.value })}
                 className={inputClass}
                 min="1"
                 required
+                lang="en"
               />
             </div>
             <div>
@@ -693,50 +1073,82 @@ const AddItemPage: React.FC = () => {
             <div>
               <label className={labelClass}>الوزن (غم)</label>
               <input
-                type="number"
+                type="text" inputMode="decimal"
                 step="0.001"
                 value={formData.weight}
                 onChange={(e) => setFormData({ ...formData, weight: e.target.value })}
                 className={inputClass}
                 placeholder="0.000"
                 required
+                lang="en"
               />
             </div>
             <div>
               <label className={labelClass}>سعر الشراء (د.ل)</label>
               <input
-                type="number"
+                type="text" inputMode="decimal"
                 step="0.01"
                 value={formData.purchase_price}
                 onChange={(e) => setFormData({ ...formData, purchase_price: e.target.value })}
                 className={inputClass}
-                placeholder="0.00"
+                placeholder="1"
+                lang="en"
               />
             </div>
             <div>
               <label className={labelClass}>سعر البيع (د.ل)</label>
               <input
-                type="number"
+                type="text" inputMode="decimal"
                 step="0.01"
                 value={formData.sale_price}
                 onChange={(e) => setFormData({ ...formData, sale_price: e.target.value })}
                 className={inputClass}
                 placeholder="0.00"
+                lang="en"
               />
             </div>
           </div>
 
-          {/* Base Price (if no sale price) */}
+          {/* Price Per Gram Info */}
+          <div className="bg-gray-700/30 rounded-xl p-3 border border-yellow-600/20">
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-gray-400">سعر الجرام ({formData.karat} قيراط):</span>
+              <span className="text-yellow-400 font-bold" dir="ltr" lang="en">{formatCurrency(pricePerGram)}</span>
+            </div>
+            {pricePerGram === 0 && (
+              <p className="text-red-400 text-xs mt-1 flex items-center gap-1">
+                <AlertTriangle className="w-3 h-3" />
+                لم يتم إدخال سعر الذهب بعد. يجب تحديث سعر الذهب يدوياً من إعدادات النظام.
+              </p>
+            )}
+          </div>
+
+          {/* Base Price (auto-calculated) */}
           <div>
-            <label className={labelClass}>السعر الأساسي (د.ل)</label>
+            <label className={labelClass}>السعر الأساسي (د.ل) - يُحسب تلقائياً</label>
             <input
-              type="number"
+              type="text" inputMode="decimal"
               step="0.01"
               value={formData.price}
               onChange={(e) => setFormData({ ...formData, price: e.target.value })}
               className={inputClass}
               placeholder="0.00"
+              lang="en"
             />
+          </div>
+
+          {/* Total Price Display */}
+          <div className="bg-green-600/20 rounded-xl p-4 border border-green-600/30">
+            <div className="flex items-center justify-between">
+              <span className="text-gray-300 font-medium">إجمالي سعر القطعة (الوزن × العدد × سعر الغرام):</span>
+              <span className="text-2xl font-bold text-green-400" dir="ltr" lang="en">
+                {formatCurrency(((parseFloat(formData.weight) || 0) * (parseInt(formData.stock_qty) || 1)) * pricePerGram)}
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-sm mt-2 text-gray-400" dir="ltr" lang="en">
+              <span>{formatNumber(parseFloat(formData.weight) || 0)}غم × {parseInt(formData.stock_qty) || 1} قطعة × {formatCurrency(pricePerGram)}/غم</span>
+              <span>= {formatCurrency(((parseFloat(formData.weight) || 0) * (parseInt(formData.stock_qty) || 1)) * pricePerGram)}</span>
+            </div>
           </div>
 
           {/* Notes Field */}
@@ -749,6 +1161,39 @@ const AddItemPage: React.FC = () => {
               placeholder="أضف أي ملاحظات هنا..."
               rows={3}
             />
+          </div>
+
+          {/* Barcode / QR Code */}
+          <div>
+            <label className={labelClass}>باركود / كود QR</label>
+            <input
+              type="text"
+              value={formData.barcode}
+              onChange={(e) => {
+                let val = e.target.value;
+                // Convert Arabic chars to English (barcode reader with Arabic keyboard)
+                const arabicMap: Record<string, string> = {
+                  '١':'1','٢':'2','٣':'3','٤':'4','٥':'5','٦':'6','٧':'7','٨':'8','٩':'9','٠':'0',
+                  'ض':'Q','ص':'W','ث':'E','ق':'R','ف':'T','غ':'Y','ع':'U','ه':'I','خ':'O','ح':'P',
+                  'ج':'A','ش':'S','ي':'D','ب':'F','ل':'G','ن':'H','م':'J','ك':'L','ت':'Z','ئ':'X',
+                  'ا':'A','ى':'A','ء':'Q','ؤ':'Q','لا':'L',
+                };
+                val = val.replace(/[\u0660-\u0669\u06F0-\u06F9]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0x0660 + 48));
+                val = val.replace(/[\u0621-\u064A]/g, (ch) => arabicMap[ch] || ch);
+                setFormData(prev => ({ ...prev, barcode: val }));
+              }}
+              className={inputClass}
+              placeholder="امسح الباركود بالقارئ أو اكتب الكود يدوياً"
+              dir="ltr"
+              lang="en"
+            />
+            {scanMessage && (
+              <p className="text-green-400 text-sm mt-1 flex items-center gap-1">
+                <CheckCircle className="w-4 h-4" />
+                {scanMessage}
+              </p>
+            )}
+            <p className="text-gray-500 text-xs mt-1">يمكنك استخدام قارئ الباركود USB لملء هذا الحقل تلقائياً</p>
           </div>
 
           {/* Preview Code */}
@@ -767,7 +1212,7 @@ const AddItemPage: React.FC = () => {
           {/* Submit Button */}
           <button
             type="submit"
-            disabled={loading || !formData.model_name || !formData.weight || !formData.price || !formData.gold_item}
+            disabled={loading || !formData.model_name || !formData.weight || !formData.gold_item}
             className="w-full bg-gradient-to-r from-yellow-600 to-yellow-500 hover:from-yellow-700 hover:to-yellow-600 text-gray-900 font-bold py-4 rounded-xl transition-all duration-200 flex items-center justify-center gap-2 disabled:opacity-50 shadow-lg"
           >
             {loading ? (

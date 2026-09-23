@@ -1,17 +1,28 @@
-import React, { useState, useEffect } from 'react';
-import { Users, Shield, Plus, Edit, Trash2, X, CheckCircle, AlertTriangle, Search, UserPlus, Key, Eye, EyeOff, Activity, Bell, ToggleLeft, ToggleRight, FileText, Printer, Gem, RefreshCw, Save, Database, Download, Upload, Trash, Play, Square, DollarSign, Settings, Store, Phone, MapPin } from 'lucide-react';
+﻿import React, { useState, useEffect } from 'react';
+import { Users, Shield, Plus, Edit, Trash2, X, CheckCircle, AlertTriangle, Search, UserPlus, Key, Eye, EyeOff, Activity, Bell, ToggleLeft, ToggleRight, FileText, Printer, Gem, RefreshCw, Save, Database, Download, Upload, Trash, Play, Square, DollarSign, Settings, Store, Phone, MapPin, FolderOpen, Hash } from 'lucide-react';
 import { authApi, getUsersList, getActivityLogs, clearActivityLogs, logActivity, notificationSystem, User, UserPermissions, ActivityLog, formatNumber } from '../services/supabase';
-import { getSystemSettings, updateGoldPrices, resetToApiPrices, getGoldPrices, updateExchangeRate, getExchangeRate, resetExchangeRate, saveSystemSettings } from '../services/settings';
-import { createBackup, restoreFromBackup, exportBackupToFile, importBackupFromFile, getBackupInfo, getBackupHistory, autoBackup } from '../services/backup';
+import { getSystemSettings, updateGoldPrices, resetToApiPrices, getGoldPrices, updateExchangeRate, updateParallelUsd, updateDeliveryAlerts, getExchangeRate, resetExchangeRate, saveSystemSettings } from '../services/settings';
+import { exportFullBackup, importFullBackup, getBackupStats, getAllLocalStorageData } from '../services/backup';
+import { resetAllSerialNumbers, getStorageCounts } from '../services/goldOrdersStorage';
 import { addDemoData, removeDemoData, hasDemoDataSimulation, getDemoDataStats } from '../services/demoData';
+import { realtimeSync } from '../services/realtimeSync';
+import { sendDeliveryAlerts, getUpcomingDeliveries } from '../services/deliveryAlerts';
 
 const AdminPanel: React.FC = () => {
+  const [currentUser, setCurrentUser] = useState<any>(null);
   const [activeTab, setActiveTab] = useState<'users' | 'logs' | 'settings' | 'backup' | 'demo'>('users');
+  const canEditGoldPrices = currentUser?.role === 'admin' || currentUser?.role === 'seller';
+  const canManageUsers = currentUser?.role === 'admin';
   const [users, setUsers] = useState<User[]>([]);
   const [goldPrices, setGoldPrices] = useState<any>(null);
-  const [priceForm, setPriceForm] = useState({ gold24k: 0, gold21k: 0, gold18k: 0, silver: 0, storeName: '', storePhone: '', storeAddress: '' });
+  const [priceForm, setPriceForm] = useState({ gold24k: 0, gold22k: 0, gold21k: 0, gold18k: 0, silver: 0, storeName: '', storePhone: '', storeAddress: '' });
   const [exchangeRate, setExchangeRate] = useState(4.85);
-  const [exchangeForm, setExchangeForm] = useState(4.85);
+  const [exchangeFormStr, setExchangeFormStr] = useState('4.85');
+  const [parallelUsd, setParallelUsd] = useState(0);
+  const [parallelFormStr, setParallelFormStr] = useState('');
+  const [deliveryAlertsEnabled, setDeliveryAlertsEnabled] = useState(true);
+  const [deliveryDaysBefore, setDeliveryDaysBefore] = useState('20');
+  const [deliveryPhones, setDeliveryPhones] = useState('+218912133218\n+218913157496');
   const [logs, setLogs] = useState<ActivityLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -19,36 +30,77 @@ const AdminPanel: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
-  const [backupInfo, setBackupInfo] = useState<any>(null);
-  const [backupHistory, setBackupHistory] = useState<any[]>([]);
+  const [backupStats, setBackupStats] = useState<{ keysCount: number; totalSizeKB: number; itemsCount: number } | null>(null);
+  const [imagesFolderPath, setImagesFolderPath] = useState('');
+  const [tempFolderPath, setTempFolderPath] = useState('');
+  const [storageCounts, setStorageCounts] = useState({ receipts: 0, invoices: 0 });
 
   const [formData, setFormData] = useState({
-    email: '', password: '', name: '', role: 'seller' as 'admin' | 'seller', seller_code: '', isActive: true,
+    email: '', password: '', name: '', role: 'seller' as 'admin' | 'accountant' | 'seller' | 'data_entry', seller_code: '', isActive: true,
     permissions: {
-      canCreateInvoice: true, canPrintInventory: false, canAddItems: true, canEditItems: true,
-      canDeleteItems: false, canManageUsers: false, canViewReports: true, canAdjustPrices: false,
+      canCreateInvoice: true, canPrintInvoices: true, canReturns: true, canAddItems: true, canEditItems: true,
+      canDeleteItems: false, canSearch: true, canEnterData: true, canViewFinancials: false, canEditFinancials: false,
+      canViewTreasury: false, canViewAnalysis: false, canViewReports: true, canAdjustPrices: false,
+      canManageUsers: false, canManageOrders: false, canArchive: false, canPrintInventory: false,
     } as UserPermissions,
   });
 
-  useEffect(() => { loadData(); }, []);
+  useEffect(() => { 
+    loadData(); 
+    
+    // Listen for realtime updates from other devices
+    const unsubSettings = realtimeSync.on('settings_updated', () => {
+      console.log('⚙️ Settings updated from another device - refreshing...');
+      const settings = getSystemSettings();
+      setGoldPrices(settings.goldPrices);
+      setPriceForm({ gold24k: settings.goldPrices.gold24k, gold22k: settings.goldPrices.gold22k, gold21k: settings.goldPrices.gold21k, gold18k: settings.goldPrices.gold18k, silver: settings.goldPrices.silver, storeName: settings.storeName, storePhone: settings.storePhone, storeAddress: settings.storeAddress });
+    });
+    const unsubUsers = realtimeSync.on('users_updated', () => {
+      console.log('👥 Users updated from another device - refreshing...');
+      loadData();
+    });
+    
+    return () => {
+      unsubSettings();
+      unsubUsers();
+    };
+  }, []);
 
-  const loadData = () => {
+  const loadData = async () => {
     setLoading(true);
-    const storedUsers = localStorage.getItem('users');
-    if (storedUsers) {
-      const usersList = JSON.parse(storedUsers).map((u: any) => { const { password: _, ...userWithoutPassword } = u; return userWithoutPassword; });
+    setCurrentUser(authApi.getCurrentUser());
+    try {
+      const allUsers = await authApi.getUsersList();
+      const usersList = allUsers.map((u: any) => { const { password: _, ...userWithoutPassword } = u; return userWithoutPassword; });
       setUsers(usersList);
+    } catch (e) {
+      console.error('Error loading users:', e);
     }
     setLogs(getActivityLogs(100));
     const settings = getSystemSettings();
     setGoldPrices(settings.goldPrices);
-    setPriceForm({ gold24k: settings.goldPrices.gold24k, gold21k: settings.goldPrices.gold21k, gold18k: settings.goldPrices.gold18k, silver: settings.goldPrices.silver, storeName: settings.storeName, storePhone: settings.storePhone, storeAddress: settings.storeAddress });
+    setPriceForm({ gold24k: settings.goldPrices.gold24k, gold22k: settings.goldPrices.gold22k, gold21k: settings.goldPrices.gold21k, gold18k: settings.goldPrices.gold18k, silver: settings.goldPrices.silver, storeName: settings.storeName, storePhone: settings.storePhone, storeAddress: settings.storeAddress });
     const rate = getExchangeRate();
     setExchangeRate(rate);
-    setExchangeForm(rate);
-    const info = getBackupInfo();
-    setBackupInfo(info);
-    setBackupHistory(getBackupHistory());
+    setExchangeFormStr(rate.toString());
+    setParallelUsd(settings.exchangeRate.parallelUsd || 0);
+    setParallelFormStr(settings.exchangeRate.parallelUsd?.toString() || '');
+    setDeliveryAlertsEnabled(settings.deliveryAlerts?.enabled ?? true);
+    setDeliveryDaysBefore(settings.deliveryAlerts?.daysBeforeDelivery?.toString() || '20');
+    setDeliveryPhones(settings.deliveryAlerts?.phoneNumbers?.join('\n') || '+218912133218\n+218913157496');
+    setStorageCounts(getStorageCounts());
+
+    // Load images folder path from server
+    try {
+      const response = await fetch('/api/images/folder-path');
+      const result = await response.json();
+      if (result.success) {
+        setImagesFolderPath(result.data.path || '');
+        setTempFolderPath(result.data.path || '');
+      }
+    } catch (e) { /* ignore */ }
+    const allData = getAllLocalStorageData();
+    setBackupStats(getBackupStats(allData));
     setLoading(false);
   };
 
@@ -63,20 +115,44 @@ const AdminPanel: React.FC = () => {
     }
   };
 
-  const handleResetPrices = () => {
-    if (confirm('هل تريد إعادة الأسعار الافتراضية (من API)؟')) {
-      const success = resetToApiPrices();
-      if (success) { notificationSystem.success('تم التحديث', 'تم إعادة الأسعار الافتراضية'); loadData(); }
+  const handleResetPrices = async () => {
+    if (confirm('هل تريد جلب الأسعار من MetalPriceAPI؟')) {
+      const success = await resetToApiPrices();
+      if (success) { 
+        notificationSystem.success('تم التحديث', 'تم جلب الأسعار من API بنجاح'); 
+        loadData(); 
+      } else {
+        notificationSystem.error('خطأ', 'فشل جلب الأسعار - تحقق من الاتصال بالإنترنت');
+      }
     }
   };
 
   const handleSaveExchangeRate = () => {
-    const success = updateExchangeRate(exchangeForm);
+    const n = parseFloat(exchangeFormStr);
+    if (isNaN(n)) return;
+    const success = updateExchangeRate(n);
     if (success) {
       notificationSystem.success('تم الحفظ', 'تم تحديث سعر الصرف بنجاح');
-      logActivity('EXCHANGE_UPDATE', `تحديث سعر الصرف: ${exchangeForm} د.ل/$`);
-      setExchangeRate(exchangeForm);
+      logActivity('EXCHANGE_UPDATE', `تحديث سعر الصرف: ${exchangeFormStr} د.ل/$`);
+      setExchangeRate(n);
     } else { notificationSystem.error('خطأ', 'حدث خطأ أثناء حفظ سعر الصرف'); }
+  };
+
+  const handleSaveImagesFolderPath = async () => {
+    try {
+      const response = await fetch('/api/images/folder-path', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folderPath: tempFolderPath }),
+      });
+      const result = await response.json();
+      if (result.success) {
+        setImagesFolderPath(tempFolderPath);
+        notificationSystem.success('تم الحفظ', 'تم تحديث مسار مجلد الصور');
+      }
+    } catch (e) {
+      notificationSystem.error('خطأ', 'حدث خطأ أثناء حفظ المسار');
+    }
   };
 
   const handleResetExchangeRate = () => {
@@ -86,28 +162,28 @@ const AdminPanel: React.FC = () => {
         notificationSystem.success('تم التحديث', 'تم إعادة سعر الصرف الافتراضي');
         const defaultRate = 4.85;
         setExchangeRate(defaultRate);
-        setExchangeForm(defaultRate);
+        setExchangeFormStr(defaultRate.toString());
         loadData();
       }
     }
   };
 
-  const handleCreateBackup = () => {
-    if (createBackup()) { notificationSystem.success('تم النسخ', 'تم إنشاء نسخ احتياطي بنجاح'); loadData(); }
-    else { notificationSystem.error('خطأ', 'فشل في إنشاء النسخ الاحتياطي'); }
+  const handleExportBackup = () => {
+    exportFullBackup();
+    notificationSystem.success('تم التصدير', 'تم تحميل ملف النسخة الاحتياطية الكاملة');
   };
 
-  const handleRestoreBackup = () => {
-    if (confirm('هل أنت متأكد من استعادة البيانات؟ سيتم استبدال جميع البيانات الحالية.')) {
-      if (restoreFromBackup(true)) { notificationSystem.success('تم الاستعادة', 'تم استعادة البيانات بنجاح'); setTimeout(() => window.location.reload(), 1500); }
-    }
-  };
-
-  const handleExportBackup = () => { exportBackupToFile(); };
-
-  const handleImportBackup = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImportBackup = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) { importBackupFromFile(file).then((success) => { if (success) loadData(); }); }
+    if (!file) return;
+    if (!confirm('هل أنت متأكد؟ سيتم استبدال جميع البيانات الحالية بالبيانات من الملف.')) { e.target.value = ''; return; }
+    const result = await importFullBackup(file);
+    if (result.success) {
+      notificationSystem.success('تم الاستعادة', result.message);
+      setTimeout(() => window.location.reload(), 1500);
+    } else {
+      notificationSystem.error('خطأ', result.message);
+    }
     e.target.value = '';
   };
 
@@ -126,10 +202,10 @@ const AdminPanel: React.FC = () => {
   const handleOpenModal = (user?: User) => {
     if (user) {
       setEditingUser(user);
-      setFormData({ email: user.email, password: '', name: user.name, role: user.role, seller_code: user.seller_code || '', isActive: user.isActive, permissions: user.permissions || { canCreateInvoice: true, canPrintInventory: false, canAddItems: true, canEditItems: true, canDeleteItems: false, canManageUsers: false, canViewReports: true, canAdjustPrices: false } });
+      setFormData({ email: user.email, password: '', name: user.name, role: user.role, seller_code: user.seller_code || '', isActive: user.isActive, permissions: user.permissions || { canCreateInvoice: true, canPrintInvoices: true, canReturns: true, canAddItems: true, canEditItems: true, canDeleteItems: false, canSearch: true, canEnterData: true, canViewFinancials: false, canEditFinancials: false, canViewTreasury: false, canViewAnalysis: false, canViewReports: true, canAdjustPrices: false, canManageUsers: false, canManageOrders: false, canArchive: false, canPrintInventory: false } });
     } else {
       setEditingUser(null);
-      setFormData({ email: '', password: '', name: '', role: 'seller', seller_code: '', isActive: true, permissions: { canCreateInvoice: true, canPrintInventory: false, canAddItems: true, canEditItems: true, canDeleteItems: false, canManageUsers: false, canViewReports: true, canAdjustPrices: false } });
+      setFormData({ email: '', password: '', name: '', role: 'seller', seller_code: '', isActive: true, permissions: { canCreateInvoice: true, canPrintInvoices: true, canReturns: true, canAddItems: true, canEditItems: true, canDeleteItems: false, canSearch: true, canEnterData: true, canViewFinancials: false, canEditFinancials: false, canViewTreasury: false, canViewAnalysis: false, canViewReports: true, canAdjustPrices: false, canManageUsers: false, canManageOrders: false, canArchive: false, canPrintInventory: false } });
     }
     setShowModal(true);
     setShowPassword(false);
@@ -137,53 +213,48 @@ const AdminPanel: React.FC = () => {
 
   const handleCloseModal = () => { setShowModal(false); setEditingUser(null); setShowPassword(false); };
 
-  const handleSaveUser = () => {
+  const handleSaveUser = async () => {
     if (!formData.email || !formData.name) { notificationSystem.error('خطأ', 'يرجى ملء جميع الحقول المطلوبة'); return; }
     if (!editingUser && !formData.password) { notificationSystem.error('خطأ', 'يرجى إدخال كلمة مرور للمستخدم الجديد'); return; }
-    const allUsers = getUsersList();
-    if (editingUser) {
-      const index = allUsers.findIndex(u => u.id === editingUser.id);
-      if (index !== -1) {
-        if (formData.password) { allUsers[index].password = formData.password; }
-        allUsers[index] = { ...allUsers[index], email: formData.email, name: formData.name, role: formData.role, seller_code: formData.seller_code, isActive: formData.isActive, permissions: formData.permissions };
+    
+    try {
+      if (editingUser) {
+        const updates: any = { email: formData.email, name: formData.name, role: formData.role, seller_code: formData.seller_code, isActive: formData.isActive, permissions: formData.permissions };
+        if (formData.password) updates.password = formData.password;
+        await authApi.updateUser(editingUser.id, updates);
+        notificationSystem.success('تم الحفظ', 'تم تحديث بيانات المستخدم');
+      } else {
+        await authApi.addUser({ email: formData.email, password: formData.password, name: formData.name, role: formData.role, seller_code: formData.seller_code, isActive: formData.isActive, permissions: formData.permissions });
+        notificationSystem.success('تم الإضافة', 'تم إضافة المستخدم الجديد');
       }
-    } else {
-      const newUser = { id: Math.random().toString(36).substr(2, 9), email: formData.email, password: formData.password, name: formData.name, role: formData.role, seller_code: formData.seller_code, isActive: formData.isActive, permissions: formData.permissions, created_at: new Date().toISOString() };
-      allUsers.push(newUser as any);
-      logActivity('USER_CREATED', `إضافة مستخدم جديد: ${formData.name}`);
-    }
-    localStorage.setItem('users', JSON.stringify(allUsers));
-    loadData();
-    handleCloseModal();
-  };
-
-  const handleToggleUserStatus = (userId: string, currentStatus: boolean) => {
-    const newStatus = !currentStatus;
-    const allUsers = getUsersList();
-    const userIndex = allUsers.findIndex(u => u.id === userId);
-    if (userIndex !== -1) {
-      allUsers[userIndex].isActive = newStatus;
-      localStorage.setItem('users', JSON.stringify(allUsers));
-      if (newStatus) { notificationSystem.success('تم التفعيل', `تم تفعيل حساب ${allUsers[userIndex].name}`); }
-      else { notificationSystem.warning('تم الإيقاف', `تم إيقاف حساب ${allUsers[userIndex].name}`); }
-      logActivity(newStatus ? 'USER_ACTIVATED' : 'USER_DEACTIVATED', `${newStatus ? 'تفعيل' : 'إيقاف'} حساب: ${allUsers[userIndex].name}`);
       loadData();
+      handleCloseModal();
+    } catch (err: any) {
+      notificationSystem.error('خطأ', err.message || 'حدث خطأ أثناء الحفظ');
     }
   };
 
-  const handleDeleteUser = (id: string) => {
-    const allUsers = getUsersList();
-    const userToDelete = allUsers.find(u => u.id === id);
-    if (userToDelete?.role === 'admin') {
-      const adminCount = allUsers.filter(u => u.role === 'admin').length;
-      if (adminCount <= 1) { notificationSystem.error('خطأ', 'لا يمكن حذف آخر مدير في النظام'); return; }
+  const handleToggleUserStatus = async (userId: string, currentStatus: boolean) => {
+    const newStatus = !currentStatus;
+    try {
+      await authApi.toggleUserStatus(userId, newStatus);
+      if (newStatus) { notificationSystem.success('تم التفعيل', 'تم تفعيل الحساب'); }
+      else { notificationSystem.warning('تم الإيقاف', 'تم إيقاف الحساب'); }
+      loadData();
+    } catch (err: any) {
+      notificationSystem.error('خطأ', err.message || 'حدث خطأ');
     }
-    const updatedUsers = allUsers.filter(u => u.id !== id);
-    localStorage.setItem('users', JSON.stringify(updatedUsers));
-    logActivity('USER_DELETED', `حذف مستخدم: ${userToDelete?.name}`);
-    notificationSystem.warning('تم الحذف', `تم حذف المستخدم`);
-    loadData();
-    setDeleteConfirm(null);
+  };
+
+  const handleDeleteUser = async (id: string) => {
+    try {
+      await authApi.deleteUser(id);
+      notificationSystem.warning('تم الحذف', 'تم حذف المستخدم');
+      loadData();
+      setDeleteConfirm(null);
+    } catch (err: any) {
+      notificationSystem.error('خطأ', err.message || 'لا يمكن حذف المستخدم');
+    }
   };
 
   const handleClearLogs = () => {
@@ -193,8 +264,13 @@ const AdminPanel: React.FC = () => {
   const filteredUsers = users.filter(user => user.name.toLowerCase().includes(searchQuery.toLowerCase()) || user.email.toLowerCase().includes(searchQuery.toLowerCase()));
 
   const getRoleBadge = (role: string) => {
-    if (role === 'admin') return (<span className="bg-purple-600 text-white px-3 py-1 rounded-full text-sm flex items-center gap-1"><Shield className="w-4 h-4" />مدير</span>);
-    return (<span className="bg-blue-600 text-white px-3 py-1 rounded-full text-sm flex items-center gap-1"><Users className="w-4 h-4" />بائع</span>);
+    switch (role) {
+      case 'admin': return (<span className="bg-purple-600 text-white px-3 py-1 rounded-full text-sm flex items-center gap-1"><Shield className="w-4 h-4" />مدير</span>);
+      case 'accountant': return (<span className="bg-blue-600 text-white px-3 py-1 rounded-full text-sm flex items-center gap-1"><DollarSign className="w-4 h-4" />محاسب</span>);
+      case 'seller': return (<span className="bg-green-600 text-white px-3 py-1 rounded-full text-sm flex items-center gap-1"><Users className="w-4 h-4" />بائع</span>);
+      case 'data_entry': return (<span className="bg-orange-600 text-white px-3 py-1 rounded-full text-sm flex items-center gap-1"><Edit className="w-4 h-4" />مدخل بيانات</span>);
+      default: return (<span className="bg-gray-600 text-white px-3 py-1 rounded-full text-sm">{role}</span>);
+    }
   };
 
   const getActivityIcon = (action: string) => {
@@ -290,22 +366,119 @@ const AdminPanel: React.FC = () => {
 
       {activeTab === 'settings' && (
         <>
+          {/* Gold Prices - Admin and Seller only */}
+          {canEditGoldPrices && (
           <div className="bg-gray-800 rounded-2xl border border-gray-700 overflow-hidden">
             <div className="p-4 border-b border-gray-700 flex justify-between items-center bg-gradient-to-r from-yellow-600 to-yellow-500"><h3 className="text-lg font-bold text-gray-900 flex items-center gap-2"><Gem className="w-5 h-5" />إعدادات أسعار الذهب</h3><span className={`px-3 py-1 rounded-full text-sm font-bold ${goldPrices?.isCustom ? 'bg-green-600 text-white' : 'bg-blue-600 text-white'}`}>{goldPrices?.isCustom ? 'مُحددة يدوياً' : 'من API'}</span></div>
             <div className="p-6">
               <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-4 mb-6"><p className="text-yellow-400 text-sm"><span className="font-bold">ملاحظة:</span> هذه الأسعار تُستخدم لحساب قيمة القطع في النظام.</p></div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                <div className="bg-gradient-to-br from-yellow-600/20 to-yellow-500/10 rounded-xl p-5 border border-yellow-500/30"><div className="flex items-center gap-2 mb-2"><div className="w-8 h-8 bg-yellow-500 rounded-lg flex items-center justify-center"><span className="text-gray-900 font-bold text-xs">24</span></div><span className="text-yellow-400 font-medium">عيار 24</span></div><div className="mt-2"><input type="number" value={priceForm.gold24k} onChange={(e) => setPriceForm({ ...priceForm, gold24k: parseFloat(e.target.value) || 0 })} className="w-full bg-gray-700 border border-gray-600 text-white px-3 py-2 rounded-lg text-lg font-bold focus:outline-none focus:ring-2 focus:ring-yellow-500" /><span className="text-gray-400 text-sm">د.ل / غرام</span></div></div>
-                <div className="bg-gradient-to-br from-yellow-600/20 to-yellow-500/10 rounded-xl p-5 border border-yellow-500/30"><div className="flex items-center gap-2 mb-2"><div className="w-8 h-8 bg-yellow-600 rounded-lg flex items-center justify-center"><span className="text-gray-900 font-bold text-xs">21</span></div><span className="text-yellow-400 font-medium">عيار 21</span></div><div className="mt-2"><input type="number" value={priceForm.gold21k} onChange={(e) => setPriceForm({ ...priceForm, gold21k: parseFloat(e.target.value) || 0 })} className="w-full bg-gray-700 border border-gray-600 text-white px-3 py-2 rounded-lg text-lg font-bold focus:outline-none focus:ring-2 focus:ring-yellow-500" /><span className="text-gray-400 text-sm">د.ل / غرام</span></div></div>
-                <div className="bg-gradient-to-br from-yellow-600/20 to-yellow-500/10 rounded-xl p-5 border border-yellow-500/30"><div className="flex items-center gap-2 mb-2"><div className="w-8 h-8 bg-yellow-700 rounded-lg flex items-center justify-center"><span className="text-white font-bold text-xs">18</span></div><span className="text-yellow-400 font-medium">عيار 18</span></div><div className="mt-2"><input type="number" value={priceForm.gold18k} onChange={(e) => setPriceForm({ ...priceForm, gold18k: parseFloat(e.target.value) || 0 })} className="w-full bg-gray-700 border border-gray-600 text-white px-3 py-2 rounded-lg text-lg font-bold focus:outline-none focus:ring-2 focus:ring-yellow-500" /><span className="text-gray-400 text-sm">د.ل / غرام</span></div></div>
-                <div className="bg-gradient-to-br from-gray-500/20 to-gray-400/10 rounded-xl p-5 border border-gray-500/30"><div className="flex items-center gap-2 mb-2"><div className="w-8 h-8 bg-gray-400 rounded-lg flex items-center justify-center"><span className="text-gray-900 font-bold text-xs">AG</span></div><span className="text-gray-300 font-medium">الفضة</span></div><div className="mt-2"><input type="number" value={priceForm.silver} onChange={(e) => setPriceForm({ ...priceForm, silver: parseFloat(e.target.value) || 0 })} className="w-full bg-gray-700 border border-gray-600 text-white px-3 py-2 rounded-lg text-lg font-bold focus:outline-none focus:ring-2 focus:ring-gray-500" /><span className="text-gray-400 text-sm">د.ل / غرام</span></div></div>
+                <div className="bg-gradient-to-br from-yellow-600/20 to-yellow-500/10 rounded-xl p-5 border border-yellow-500/30"><div className="flex items-center gap-2 mb-2"><div className="w-8 h-8 bg-yellow-500 rounded-lg flex items-center justify-center"><span className="text-gray-900 font-bold text-xs">24</span></div><span className="text-yellow-400 font-medium">عيار 24</span></div><div className="mt-2"><input type="text" inputMode="decimal" value={priceForm.gold24k} onChange={(e) => setPriceForm({ ...priceForm, gold24k: parseFloat(e.target.value) || 0 })} className="w-full bg-gray-700 border border-gray-600 text-white px-3 py-2 rounded-lg text-lg font-bold focus:outline-none focus:ring-2 focus:ring-yellow-500" /><span className="text-gray-400 text-sm">د.ل / غرام</span></div></div>
+                <div className="bg-gradient-to-br from-yellow-600/20 to-yellow-500/10 rounded-xl p-5 border border-yellow-500/30"><div className="flex items-center gap-2 mb-2"><div className="w-8 h-8 bg-yellow-600 rounded-lg flex items-center justify-center"><span className="text-white font-bold text-xs">22</span></div><span className="text-yellow-400 font-medium">عيار 22</span></div><div className="mt-2"><input type="text" inputMode="decimal" value={priceForm.gold22k} onChange={(e) => setPriceForm({ ...priceForm, gold22k: parseFloat(e.target.value) || 0 })} className="w-full bg-gray-700 border border-gray-600 text-white px-3 py-2 rounded-lg text-lg font-bold focus:outline-none focus:ring-2 focus:ring-yellow-500" /><span className="text-gray-400 text-sm">د.ل / غرام</span></div></div>
+                <div className="bg-gradient-to-br from-yellow-600/20 to-yellow-500/10 rounded-xl p-5 border border-yellow-500/30"><div className="flex items-center gap-2 mb-2"><div className="w-8 h-8 bg-yellow-600 rounded-lg flex items-center justify-center"><span className="text-gray-900 font-bold text-xs">21</span></div><span className="text-yellow-400 font-medium">عيار 21</span></div><div className="mt-2"><input type="text" inputMode="decimal" value={priceForm.gold21k} onChange={(e) => setPriceForm({ ...priceForm, gold21k: parseFloat(e.target.value) || 0 })} className="w-full bg-gray-700 border border-gray-600 text-white px-3 py-2 rounded-lg text-lg font-bold focus:outline-none focus:ring-2 focus:ring-yellow-500" /><span className="text-gray-400 text-sm">د.ل / غرام</span></div></div>
+                <div className="bg-gradient-to-br from-yellow-600/20 to-yellow-500/10 rounded-xl p-5 border border-yellow-500/30"><div className="flex items-center gap-2 mb-2"><div className="w-8 h-8 bg-yellow-700 rounded-lg flex items-center justify-center"><span className="text-white font-bold text-xs">18</span></div><span className="text-yellow-400 font-medium">عيار 18</span></div><div className="mt-2"><input type="text" inputMode="decimal" value={priceForm.gold18k} onChange={(e) => setPriceForm({ ...priceForm, gold18k: parseFloat(e.target.value) || 0 })} className="w-full bg-gray-700 border border-gray-600 text-white px-3 py-2 rounded-lg text-lg font-bold focus:outline-none focus:ring-2 focus:ring-yellow-500" /><span className="text-gray-400 text-sm">د.ل / غرام</span></div></div>
+                <div className="bg-gradient-to-br from-gray-500/20 to-gray-400/10 rounded-xl p-5 border border-gray-500/30"><div className="flex items-center gap-2 mb-2"><div className="w-8 h-8 bg-gray-400 rounded-lg flex items-center justify-center"><span className="text-gray-900 font-bold text-xs">AG</span></div><span className="text-gray-300 font-medium">الفضة</span></div><div className="mt-2"><input type="text" inputMode="decimal" value={priceForm.silver} onChange={(e) => setPriceForm({ ...priceForm, silver: parseFloat(e.target.value) || 0 })} className="w-full bg-gray-700 border border-gray-600 text-white px-3 py-2 rounded-lg text-lg font-bold focus:outline-none focus:ring-2 focus:ring-gray-500" /><span className="text-gray-400 text-sm">د.ل / غرام</span></div></div>
               </div>
               {goldPrices?.lastUpdated && <div className="text-center text-gray-400 text-sm mb-4">آخر تحديث: {new Date(goldPrices.lastUpdated).toLocaleString('ar-SA')}</div>}
               <div className="flex gap-4"><button onClick={handleSaveGoldPrices} className="flex-1 bg-gradient-to-r from-green-600 to-green-500 hover:from-green-700 hover:to-green-600 text-white font-bold py-4 rounded-xl flex items-center justify-center gap-2"><Save className="w-5 h-5" />حفظ الأسعار</button><button onClick={handleResetPrices} className="bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-700 hover:to-blue-600 text-white font-bold py-4 px-6 rounded-xl flex items-center justify-center gap-2"><RefreshCw className="w-5 h-5" />إعادة من API</button></div>
             </div>
           </div>
-          <div className="bg-gray-800 rounded-2xl border border-gray-700 p-6 mt-6"><h3 className="text-lg font-bold text-white mb-4">ملخص الأسعار الحالية</h3><div className="grid grid-cols-2 md:grid-cols-4 gap-4"><div className="bg-gray-700/50 rounded-xl p-4 text-center"><p className="text-gray-400 text-sm">سعر عيار 24</p><p className="text-2xl font-bold text-yellow-400">{priceForm.gold24k.toLocaleString()} د.ل</p></div><div className="bg-gray-700/50 rounded-xl p-4 text-center"><p className="text-gray-400 text-sm">سعر عيار 21</p><p className="text-2xl font-bold text-yellow-400">{priceForm.gold21k.toLocaleString()} د.ل</p></div><div className="bg-gray-700/50 rounded-xl p-4 text-center"><p className="text-gray-400 text-sm">سعر عيار 18</p><p className="text-2xl font-bold text-yellow-400">{priceForm.gold18k.toLocaleString()} د.ل</p></div><div className="bg-gray-700/50 rounded-xl p-4 text-center"><p className="text-gray-400 text-sm">سعر الفضة</p><p className="text-2xl font-bold text-gray-300">{priceForm.silver.toLocaleString()} د.ل</p></div></div></div>
-          <div className="bg-gray-800 rounded-2xl border border-gray-700 p-6 mt-6"><h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2"><DollarSign className="w-5 h-5 text-green-400" />سعر صرف الدولار</h3><div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end"><div><label className="block text-gray-400 text-sm mb-2">سعر صرف الدولار (د.ل)</label><input type="number" step="0.01" value={exchangeForm} onChange={(e) => setExchangeForm(parseFloat(e.target.value) || 0)} className="w-full bg-gray-700 border border-gray-600 text-white px-4 py-3 rounded-lg text-lg font-bold focus:outline-none focus:ring-2 focus:ring-green-500" /></div><button onClick={handleSaveExchangeRate} className="bg-gradient-to-r from-green-600 to-green-500 hover:from-green-700 hover:to-green-600 text-white font-bold py-3 px-6 rounded-lg flex items-center justify-center gap-2"><Save className="w-5 h-5" />حفظ السعر</button><button onClick={handleResetExchangeRate} className="bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 px-6 rounded-lg">إعادة افتراضي</button></div>{goldPrices?.lastUpdated && <p className="text-gray-500 text-sm mt-3">آخر تحديث لسعر الصرف: {new Date(goldPrices.lastUpdated).toLocaleString('ar-SA')}</p>}</div>
+          )}
+          <div className="bg-gray-800 rounded-2xl border border-gray-700 p-6 mt-6"><h3 className="text-lg font-bold text-white mb-4">ملخص الأسعار الحالية</h3><div className="grid grid-cols-2 md:grid-cols-6 gap-4"><div className="bg-gray-700/50 rounded-xl p-4 text-center"><p className="text-gray-400 text-sm">عيار 24</p><p className="text-2xl font-bold text-yellow-400" lang="en">{formatNumber(priceForm.gold24k)} د.ل</p></div><div className="bg-gray-700/50 rounded-xl p-4 text-center"><p className="text-gray-400 text-sm">عيار 22</p><p className="text-2xl font-bold text-yellow-400" lang="en">{formatNumber(priceForm.gold22k)} د.ل</p></div><div className="bg-gray-700/50 rounded-xl p-4 text-center"><p className="text-gray-400 text-sm">عيار 21</p><p className="text-2xl font-bold text-yellow-400" lang="en">{formatNumber(priceForm.gold21k)} د.ل</p></div><div className="bg-gray-700/50 rounded-xl p-4 text-center"><p className="text-gray-400 text-sm">عيار 18</p><p className="text-2xl font-bold text-yellow-400" lang="en">{formatNumber(priceForm.gold18k)} د.ل</p></div><div className="bg-gray-700/50 rounded-xl p-4 text-center"><p className="text-gray-400 text-sm">الفضة</p><p className="text-2xl font-bold text-gray-300" lang="en">{formatNumber(priceForm.silver)} د.ل</p></div><div className="bg-gray-700/50 rounded-xl p-4 text-center"><p className="text-gray-400 text-sm">الدولار Parallel</p><p className="text-2xl font-bold text-orange-400" lang="en">{formatNumber(parallelUsd)} د.ل</p></div></div></div>
+          <div className="bg-gray-800 rounded-2xl border border-gray-700 p-6 mt-6"><h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2"><DollarSign className="w-5 h-5 text-green-400" />أسعار الصرف</h3><div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            <div><label className="block text-gray-400 text-sm mb-2">سعر صرف الدولار Official (د.ل)</label><div className="flex gap-2"><input type="text" inputMode="decimal" value={exchangeFormStr} onChange={(e) => { const v = e.target.value; if (v === '' || /^\d*\.?\d*$/.test(v)) setExchangeFormStr(v); }} onBlur={() => { const n = parseFloat(exchangeFormStr); setExchangeFormStr(isNaN(n) ? '0' : n.toString()); }} className="flex-1 bg-gray-700 border border-gray-600 text-white px-4 py-3 rounded-lg text-lg font-bold focus:outline-none focus:ring-2 focus:ring-green-500" dir="ltr" /><button onClick={() => { const n = parseFloat(exchangeFormStr); updateExchangeRate(isNaN(n) ? 0 : n); notificationSystem.success('تم', 'تم حفظ سعر الصرف'); logActivity('EXCHANGE_RATE_UPDATED', `تحديث سعر الصرف: ${exchangeFormStr}`); }} className="bg-green-600 hover:bg-green-700 text-white font-bold px-4 py-3 rounded-lg"><Save className="w-5 h-5" /></button></div></div>
+            <div><label className="block text-gray-400 text-sm mb-2">سعر صرف الدولار Parallel (د.ل)</label><div className="flex gap-2"><input type="text" inputMode="decimal" value={parallelFormStr} onChange={(e) => { const v = e.target.value; if (v === '' || /^\d*\.?\d*$/.test(v)) setParallelFormStr(v); }} onBlur={() => { const n = parseFloat(parallelFormStr); setParallelFormStr(isNaN(n) ? '' : n.toString()); }} className="flex-1 bg-gray-700 border border-gray-600 text-white px-4 py-3 rounded-lg text-lg font-bold focus:outline-none focus:ring-2 focus:ring-yellow-500" dir="ltr" placeholder="سعر السوق الموازي" /><button onClick={() => { const n = parseFloat(parallelFormStr); updateParallelUsd(n || 0); setParallelUsd(n || 0); notificationSystem.success('تم', 'تم حفظ سعر السوق الموازي'); logActivity('PARALLEL_USD_UPDATED', `تحديث سعر السوق الموازي: ${parallelFormStr}`); }} className="bg-yellow-600 hover:bg-yellow-700 text-white font-bold px-4 py-3 rounded-lg"><Save className="w-5 h-5" /></button></div></div>
+          </div><button onClick={handleResetExchangeRate} className="text-gray-400 hover:text-white text-sm">إعادة افتراضي</button>{goldPrices?.lastUpdated && <p className="text-gray-500 text-sm mt-3">آخر تحديث: {new Date(goldPrices.lastUpdated).toLocaleString('en-CA')}</p>}</div>
+          {/* Images Folder Path */}
+          <div className="bg-gray-800 rounded-2xl border border-gray-700 p-6 mt-6">
+            <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+              <FolderOpen className="w-5 h-5 text-purple-400" />مجلد الصور
+            </h3>
+            <p className="text-gray-400 text-sm mb-4">حدد مسار المجلد الذي يحتوي على صور المجوهرات على الهارد ديسك لعرضها في متصفح الصور</p>
+            <div className="flex gap-3">
+              <input
+                type="text"
+                value={tempFolderPath}
+                onChange={(e) => setTempFolderPath(e.target.value)}
+                className="flex-1 bg-gray-700 border border-gray-600 text-white px-4 py-3 rounded-lg font-mono text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                placeholder="مثال: D:\صور المجوهرات"
+                dir="ltr"
+              />
+              <button onClick={handleSaveImagesFolderPath}
+                className="bg-gradient-to-r from-purple-600 to-purple-500 hover:from-purple-700 hover:to-purple-600 text-white font-bold py-3 px-6 rounded-lg flex items-center justify-center gap-2">
+                <Save className="w-5 h-5" />حفظ
+              </button>
+            </div>
+            {imagesFolderPath && <p className="text-green-400 text-sm mt-2">✓ المسار الحالي: <span className="font-mono" dir="ltr">{imagesFolderPath}</span></p>}
+          </div>
+          {/* Delivery Alerts Settings */}
+          <div className="bg-gray-800 rounded-2xl border border-gray-700 p-6 mt-6">
+            <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+              <Bell className="w-5 h-5 text-orange-400" />تنبيهات التسليم (واتساب)
+            </h3>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <span className="text-gray-400">تفعيل التنبيهات</span>
+                <button onClick={() => setDeliveryAlertsEnabled(!deliveryAlertsEnabled)}
+                  className={`w-12 h-6 rounded-full transition-colors ${deliveryAlertsEnabled ? 'bg-green-600' : 'bg-gray-600'}`}>
+                  <div className={`w-5 h-5 bg-white rounded-full transition-transform ${deliveryAlertsEnabled ? 'translate-x-6' : 'translate-x-0.5'}`} />
+                </button>
+              </div>
+              <div>
+                <label className="block text-gray-400 text-sm mb-2">أيام قبل التسليم للتنبيه</label>
+                <input type="text" inputMode="decimal" value={deliveryDaysBefore} onChange={(e) => setDeliveryDaysBefore(e.target.value)}
+                  className="w-32 bg-gray-700 border border-gray-600 text-white px-4 py-2 rounded-lg text-center font-bold focus:outline-none focus:ring-2 focus:ring-orange-500" dir="ltr" />
+                <span className="text-gray-500 text-sm mr-2">يوم</span>
+              </div>
+              <div>
+                <label className="block text-gray-400 text-sm mb-2">أرقام الواتساب (سطر لكل رقم)</label>
+                <textarea value={deliveryPhones} onChange={(e) => setDeliveryPhones(e.target.value)}
+                  rows={3}
+                  className="w-full bg-gray-700 border border-gray-600 text-white px-4 py-3 rounded-lg font-mono text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  dir="ltr" placeholder="+218912133218" />
+              </div>
+              <button onClick={() => {
+                const phones = deliveryPhones.split('\n').map(p => p.trim()).filter(p => p);
+                updateDeliveryAlerts({
+                  enabled: deliveryAlertsEnabled,
+                  daysBeforeDelivery: parseInt(deliveryDaysBefore) || 20,
+                  phoneNumbers: phones,
+                });
+                notificationSystem.success('تم', 'تم حفظ إعدادات التنبيهات');
+                logActivity('DELIVERY_ALERTS_UPDATED', 'تحديث إعدادات تنبيهات التسليم');
+              }} className="bg-gradient-to-r from-orange-600 to-orange-500 hover:from-orange-700 hover:to-orange-600 text-white font-bold py-3 px-6 rounded-lg flex items-center justify-center gap-2">
+                <Save className="w-5 h-5" />حفظ الإعدادات
+              </button>
+              <button onClick={() => {
+                const results = sendDeliveryAlerts();
+                if (results.sent > 0) {
+                  notificationSystem.success('تم الإرسال', `تم إرسال ${results.sent} تنبيه واتساب`);
+                } else {
+                  notificationSystem.info('لا تنبيهات', 'لا توجد طلبيات تحتاج تنبيه الآن');
+                }
+              }} className="bg-gradient-to-r from-green-600 to-green-500 hover:from-green-700 hover:to-green-600 text-white font-bold py-3 px-6 rounded-lg flex items-center justify-center gap-2">
+                <Bell className="w-5 h-5" />إرسال تنبيهات الآن
+              </button>
+            </div>
+            {/* Upcoming deliveries */}
+            <div className="mt-4 p-4 bg-gray-700/50 rounded-xl">
+              <h4 className="text-white font-bold mb-2">الطلبيات القادمة (خلال {deliveryDaysBefore} يوم)</h4>
+              {getUpcomingDeliveries(parseInt(deliveryDaysBefore) || 20).length === 0 ? (
+                <p className="text-gray-400 text-sm">لا توجد طلبيات قادمة</p>
+              ) : (
+                <div className="space-y-2">
+                  {getUpcomingDeliveries(parseInt(deliveryDaysBefore) || 20).slice(0, 5).map(({ order, daysRemaining }) => (
+                    <div key={order.receipt_number} className="flex justify-between items-center text-sm">
+                      <span className="text-white">{order.customer_name} - {order.receipt_number}</span>
+                      <span className={`font-bold ${daysRemaining <= 7 ? 'text-red-400' : daysRemaining <= 14 ? 'text-yellow-400' : 'text-green-400'}`}>
+                        {daysRemaining <= 0 ? `متأخر ${Math.abs(daysRemaining)} يوم` : `باقي ${daysRemaining} يوم`}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
           {/* Store Info Settings */}
           <div className="bg-gray-800 rounded-2xl border border-gray-700 p-6 mt-6">
             <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2"><FileText className="w-5 h-5 text-yellow-400" />معلومات المحل</h3>
@@ -335,21 +508,68 @@ const AdminPanel: React.FC = () => {
               <Save className="w-5 h-5" /> حفظ معلومات المحل
             </button>
           </div>
+          {/* Serial Number Reset */}
+          <div className="bg-gray-800 rounded-2xl border border-red-500/30 p-6 mt-6">
+            <h3 className="text-lg font-bold text-white mb-2 flex items-center gap-2">
+              <Hash className="w-5 h-5 text-red-400" />صفير الأرقام التسلسلية
+            </h3>
+            <p className="text-gray-400 text-sm mb-4">إعادة تعيين جميع أرقام الإيصالات والفواتير للتسلسل الصحي</p>
+            <div className="grid grid-cols-3 gap-4 mb-4">
+              <div className="bg-gray-700/50 rounded-xl p-4 text-center">
+                <p className="text-2xl font-bold text-white">{storageCounts.receipts}</p>
+                <p className="text-gray-400 text-sm">إيصالات</p>
+              </div>
+              <div className="bg-gray-700/50 rounded-xl p-4 text-center">
+                <p className="text-2xl font-bold text-white">{storageCounts.invoices}</p>
+                <p className="text-gray-400 text-sm">فواتير</p>
+              </div>
+              <div className="bg-gray-700/50 rounded-xl p-4 text-center">
+                <p className="text-2xl font-bold text-white">{storageCounts.receipts + storageCounts.invoices}</p>
+                <p className="text-gray-400 text-sm">المجموع</p>
+              </div>
+            </div>
+            <button onClick={() => {
+              if (!confirm('هل أنت متأكد من صفير جميع الأرقام التسلسلية؟ هذا لا يحذف البيانات، فقط يعيد ترقيمها.')) return;
+              const result = resetAllSerialNumbers();
+              setStorageCounts({ receipts: result.receipts, invoices: result.invoices });
+              notificationSystem.success('تم', `تم إعادة ترقيم ${result.receipts} إيصال و ${result.invoices} فاتورة`);
+              logActivity('SERIAL_RESET', 'صفير الأرقام التسلسلية');
+            }} className="bg-gradient-to-r from-red-600 to-red-500 hover:from-red-700 hover:to-red-600 text-white font-bold py-3 px-6 rounded-lg flex items-center justify-center gap-2">
+              <RefreshCw className="w-5 h-5" /> صفير الأرقام التسلسلية
+            </button>
+          </div>
         </>
       )}
 
       {activeTab === 'backup' && (
         <div className="bg-gray-800 rounded-2xl border border-gray-700 p-6">
-          <h3 className="text-xl font-bold text-white mb-6 flex items-center gap-2"><Database className="w-6 h-6 text-blue-400" />إدارة النسخ الاحتياطي</h3>
-          {backupInfo && (<div className="bg-blue-600/20 border border-blue-500/30 rounded-xl p-4 mb-6"><div className="flex items-center justify-between"><div><p className="text-blue-400 font-bold">آخر نسخ احتياطي</p><p className="text-white">{formatDate(backupInfo.timestamp)}</p></div><div className="text-left"><p className="text-gray-400 text-sm">الحجم</p><p className="text-white">{(backupInfo.size / 1024).toFixed(2)} KB</p></div></div></div>)}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            <button onClick={handleCreateBackup} className="bg-gradient-to-r from-green-600 to-green-500 hover:from-green-700 hover:to-green-600 text-white font-bold py-4 px-6 rounded-xl flex items-center justify-center gap-2"><Download className="w-5 h-5" /> نسخ احتياطي الآن</button>
-            <button onClick={handleRestoreBackup} disabled={!backupInfo} className={`bg-gradient-to-r from-yellow-600 to-yellow-500 hover:from-yellow-700 hover:to-yellow-600 text-gray-900 font-bold py-4 px-6 rounded-xl flex items-center justify-center gap-2 ${!backupInfo ? 'opacity-50 cursor-not-allowed' : ''}`}><Upload className="w-5 h-5" /> استعادة البيانات</button>
-            <button onClick={handleExportBackup} disabled={!backupInfo} className={`bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-700 hover:to-blue-600 text-white font-bold py-4 px-6 rounded-xl flex items-center justify-center gap-2 ${!backupInfo ? 'opacity-50 cursor-not-allowed' : ''}`}><Download className="w-5 h-5" /> تصدير للملفات</button>
-            <label className="bg-gradient-to-r from-purple-600 to-purple-500 hover:from-purple-700 hover:to-purple-600 text-white font-bold py-4 px-6 rounded-xl flex items-center justify-center gap-2 cursor-pointer"><Upload className="w-5 h-5" /> استيراد ملف<input type="file" accept=".json" onChange={handleImportBackup} className="hidden" /></label>
+          <h3 className="text-xl font-bold text-white mb-6 flex items-center gap-2"><Database className="w-6 h-6 text-blue-400" />نسخ احتياطي واستعادة شاملة</h3>
+
+          {backupStats && (
+            <div className="bg-blue-600/20 border border-blue-500/30 rounded-xl p-4 mb-6">
+              <div className="flex items-center justify-between">
+                <div><p className="text-blue-400 font-bold">البيانات الحالية</p><p className="text-white">{backupStats.keysCount} عنصر | {backupStats.totalSizeKB} KB</p></div>
+                <div className="text-left"><p className="text-gray-400 text-sm">العناصر المخزنة</p><p className="text-white">{backupStats.itemsCount}</p></div>
+              </div>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+            <button onClick={handleExportBackup} className="bg-gradient-to-r from-green-600 to-green-500 hover:from-green-700 hover:to-green-600 text-white font-bold py-4 px-6 rounded-xl flex items-center justify-center gap-2">
+              <Download className="w-5 h-5" /> تصدير نسخة احتياطية كاملة
+            </button>
+            <label className="bg-gradient-to-r from-yellow-600 to-yellow-500 hover:from-yellow-700 hover:to-yellow-600 text-gray-900 font-bold py-4 px-6 rounded-xl flex items-center justify-center gap-2 cursor-pointer">
+              <Upload className="w-5 h-5" /> استيراد واستعادة من ملف
+              <input type="file" accept=".json" onChange={handleImportBackup} className="hidden" />
+            </label>
           </div>
-          {backupHistory.length > 0 && (<div className="mt-6"><h4 className="text-lg font-bold text-white mb-4">سجل النسخ الاحتياطي</h4><div className="space-y-2">{backupHistory.slice(0, 5).map((item, index) => (<div key={index} className="bg-gray-700/50 rounded-lg p-3 flex justify-between items-center"><span className="text-gray-400">{formatDate(item.timestamp)}</span><span className="text-gray-500">{(item.size / 1024).toFixed(2)} KB</span></div>))}</div></div>)}
-          <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-4 mt-6"><p className="text-yellow-400 text-sm"><span className="font-bold">ملاحظة:</span> يتم إنشاء نسخ احتياطي تلقائي عند تسجيل الخروج من النظام.</p></div>
+
+          <div className="bg-green-500/10 border border-green-500/30 rounded-xl p-4 mb-4">
+            <p className="text-green-400 text-sm"><span className="font-bold">النسخة الاحتياطية تشمل:</span> جميع الأصناف، الفواتير، الإيصالات، الطلبيات، العهد، التسويات، الخزينة، الموظفين، إعدادات النظام، أسعار الذهب، أسعار الصرف، سجل النشاطات، وجميع بيانات النظام الأخرى.</p>
+          </div>
+          <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-4">
+            <p className="text-yellow-400 text-sm"><span className="font-bold">تنبيه:</span> عند الاستيراد، سيتم استبدال جميع البيانات الحالية بالبيانات من الملف. تأكد من احتواء الملف على جميع البيانات المطلوبة قبل الاستيراد.</p>
+          </div>
         </div>
       )}
 
@@ -373,7 +593,7 @@ const AdminPanel: React.FC = () => {
                 <div><label className="block text-gray-400 text-sm mb-2">الاسم</label><input type="text" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} placeholder="اسم المستخدم" className="w-full bg-gray-700 border border-gray-600 text-white px-4 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500" /></div>
                 <div><label className="block text-gray-400 text-sm mb-2">البريد الإلكتروني</label><input type="email" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} placeholder="example@email.com" className="w-full bg-gray-700 border border-gray-600 text-white px-4 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500" /></div>
                 <div><label className="block text-gray-400 text-sm mb-2">{editingUser ? 'كلمة المرور الجديدة (اتركها فارغة للإبقاء عليها)' : 'كلمة المرور'}</label><div className="relative"><Key className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" /><input type={showPassword ? 'text' : 'password'} value={formData.password} onChange={(e) => setFormData({ ...formData, password: e.target.value })} placeholder={editingUser ? 'أدخل كلمة مرور جديدة' : 'كلمة المرور'} className="w-full bg-gray-700 border border-gray-600 text-white px-12 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500" /><button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white">{showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}</button></div></div>
-                <div className="grid grid-cols-2 gap-4"><div><label className="block text-gray-400 text-sm mb-2">الصلاحية</label><select value={formData.role} onChange={(e) => setFormData({ ...formData, role: e.target.value as 'admin' | 'seller' })} className="w-full bg-gray-700 border border-gray-600 text-white px-4 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"><option value="seller">بائع</option><option value="admin">مدير</option></select></div><div><label className="block text-gray-400 text-sm mb-2">كود البائع</label><input type="text" value={formData.seller_code} onChange={(e) => setFormData({ ...formData, seller_code: e.target.value })} placeholder="مثال: S001" className="w-full bg-gray-700 border border-gray-600 text-white px-4 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500" /></div></div>
+                <div className="grid grid-cols-2 gap-4"><div><label className="block text-gray-400 text-sm mb-2">الصلاحية</label><select value={formData.role} onChange={(e) => setFormData({ ...formData, role: e.target.value as 'admin' | 'accountant' | 'seller' | 'data_entry' })} className="w-full bg-gray-700 border border-gray-600 text-white px-4 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"><option value="admin">مدير النظام</option><option value="accountant">محاسب</option><option value="seller">بائع</option><option value="data_entry">مدخل بيانات</option></select></div><div><label className="block text-gray-400 text-sm mb-2">كود البائع</label><input type="text" value={formData.seller_code} onChange={(e) => setFormData({ ...formData, seller_code: e.target.value })} placeholder="مثال: S001" className="w-full bg-gray-700 border border-gray-600 text-white px-4 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500" /></div></div>
                 {editingUser && (<div className="flex items-center gap-3 bg-gray-700/50 p-3 rounded-lg"><input type="checkbox" id="isActive" checked={formData.isActive} onChange={(e) => setFormData({ ...formData, isActive: e.target.checked })} className="w-5 h-5 accent-purple-500" /><label htmlFor="isActive" className="text-white cursor-pointer">حساب مفعل</label>{!formData.isActive && <span className="bg-red-600/20 text-red-400 px-2 py-1 rounded text-xs mr-auto">المستخدم موقوف</span>}</div>)}
               </div>
               <div className="bg-gray-800 rounded-xl p-4 space-y-4">

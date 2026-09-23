@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Camera, Trash2, ShoppingCart, Printer, X, AlertCircle, CheckCircle, QrCode, Eye, Save, ArrowRight, Search, Package, Send, RefreshCw } from 'lucide-react';
+import { Camera, Trash2, ShoppingCart, Printer, X, AlertCircle, CheckCircle, QrCode, Eye, Save, ArrowRight, Search, Package, Send, RefreshCw, CreditCard, Banknote, Building2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { cartStorage, generateInvoiceNumber, jewelryApi, generateQRCodeUrl, CartItem, SaleInvoice, JewelryItem, formatNumber, formatCurrency } from '../services/supabase';
+import { cartStorage, jewelryApi, generateQRCodeUrl, CartItem, SaleInvoice, JewelryItem, formatNumber, formatCurrency, isSupabaseAvailable } from '../services/supabase';
+import { getInvoiceNumber } from '../services/invoiceBooks';
+import { printInvoice } from '../services/invoiceTemplate';
 import { numberToArabicWords } from '../utils/arabic';
 import { getSystemSettings } from '../services/settings';
 import { recordSale } from '../services/treasury';
@@ -26,7 +28,13 @@ const SalesPage: React.FC = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [addedItems, setAddedItems] = useState<{[code: string]: number}>({});
   const [currentInvoiceNumber, setCurrentInvoiceNumber] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'transfer'>('cash');
+  const [transferNumber, setTransferNumber] = useState('');
+  const [bankName, setBankName] = useState('');
+  const [cardReceiptNumber, setCardReceiptNumber] = useState('');
+  const [cardReceiptDate, setCardReceiptDate] = useState('');
   const navigate = useNavigate();
+  const [savedInvoice, setSavedInvoice] = useState<any>(null);
 
   // New: Item search and selection
   const [showItemSelector, setShowItemSelector] = useState(false);
@@ -68,13 +76,140 @@ const SalesPage: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    const savedSeller = localStorage.getItem('seller_name') || 'خالد تركي';
+    const savedSeller = localStorage.getItem('current_seller') || localStorage.getItem('seller_name') || 'خالد تركي';
     setSellerName(savedSeller);
     const savedCart = cartStorage.getCart();
     setCart(savedCart);
     const lastInvoice = JSON.parse(localStorage.getItem('last_customer_name') || 'null');
     if (lastInvoice) setCustomerName(lastInvoice);
+    // Load items from server into localStorage for barcode search
+    loadAllItems();
   }, []);
+
+  // Convert physical key code to UPPERCASE English character (works regardless of keyboard layout)
+  const getCodeChar = (code: string, shiftKey: boolean): string | null => {
+    const map: Record<string, string> = {
+      'Digit0':'0','Digit1':'1','Digit2':'2','Digit3':'3','Digit4':'4',
+      'Digit5':'5','Digit6':'6','Digit7':'7','Digit8':'8','Digit9':'9',
+      'KeyA':'A','KeyB':'B','KeyC':'C','KeyD':'D','KeyE':'E','KeyF':'F',
+      'KeyG':'G','KeyH':'H','KeyI':'I','KeyJ':'J','KeyK':'K','KeyL':'L',
+      'KeyM':'M','KeyN':'N','KeyO':'O','KeyP':'P','KeyQ':'Q','KeyR':'R',
+      'KeyS':'S','KeyT':'T','KeyU':'U','KeyV':'V','KeyW':'W','KeyX':'X',
+      'KeyY':'Y','KeyZ':'Z',
+      'Minus':'-','Equal':'=',
+      'Semicolon':';','Quote':"'",'Backquote':'`',
+      'Comma':',','Period':'.','Slash':'/',
+    };
+    if (shiftKey) {
+      const shiftMap: Record<string, string> = {
+        'Digit1':'!','Digit2':'@','Digit3':'#','Digit4':'$','Digit5':'%',
+        'Digit6':'^','Digit7':'&','Digit8':'*','Digit9':'(','Digit0':')',
+        'Minus':'_','Equal':'+',
+        'Semicolon':':','Quote':'"','Backquote':'~',
+        'Comma':'<','Period':'>','Slash':'?',
+      };
+      return shiftMap[code] ?? null;
+    }
+    return map[code] ?? null;
+  };
+
+  // Barcode Reader Support - USB barcode scanners act like keyboards
+  useEffect(() => {
+    let barcodeBuffer = '';
+    let barcodeTimeout: ReturnType<typeof setTimeout> | null = null;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignore if user is typing in an input/textarea
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) {
+        return;
+      }
+
+      // Enter key = end of barcode
+      if (e.key === 'Enter') {
+        if (barcodeBuffer.length > 0) {
+          handleBarcodeScan(barcodeBuffer);
+          barcodeBuffer = '';
+        }
+        return;
+      }
+
+      // Use e.code for physical key position (ignores keyboard layout)
+      const char = getCodeChar(e.code, e.shiftKey);
+      if (char !== null) {
+        barcodeBuffer += char;
+        
+        // Clear timeout if exists
+        if (barcodeTimeout) clearTimeout(barcodeTimeout);
+        
+        // Set timeout - if no new char in 100ms, treat as complete barcode
+        barcodeTimeout = setTimeout(() => {
+          if (barcodeBuffer.length > 0) {
+            handleBarcodeScan(barcodeBuffer);
+            barcodeBuffer = '';
+          }
+        }, 100);
+      }
+    };
+
+    const handleBarcodeScan = async (code: string) => {
+      setScanMessage(`جاري البحث: ${code}...`);
+      
+      // Try server first (most reliable)
+      try {
+        const response = await fetch(`/api/items/search/${encodeURIComponent(code)}`);
+        const result = await response.json();
+        if (result.success && result.data && result.data.length > 0) {
+          const found = result.data[0];
+          if (found.stock_qty > 0) {
+            const newCart = addToCartWithSync(found);
+            setCart(newCart);
+            setScanMessage(`✓ تمت إضافة: ${found.model_name} (${found.item_code})`);
+            setShowSuccess(true);
+            setTimeout(() => { setScanMessage(''); setShowSuccess(false); }, 2000);
+          } else {
+            setScanMessage(`⚠ الصنف ${found.model_name} غير متوفر في المخزون`);
+            setTimeout(() => setScanMessage(''), 3000);
+          }
+          return;
+        }
+      } catch (e) {
+        console.log('Server search failed, trying localStorage');
+      }
+
+      // Fallback to localStorage
+      const storedItems = localStorage.getItem('jewelry_items');
+      if (storedItems) {
+        const items = JSON.parse(storedItems);
+        const found = items.find((i: JewelryItem) => 
+          i.item_code?.toLowerCase() === code.toLowerCase() ||
+          i.item_code?.toLowerCase().includes(code.toLowerCase())
+        );
+        
+        if (found) {
+          if (found.stock_qty > 0) {
+            const newCart = addToCartWithSync(found);
+            setCart(newCart);
+            setScanMessage(`✓ تمت إضافة: ${found.model_name} (${found.item_code})`);
+            setShowSuccess(true);
+            setTimeout(() => { setScanMessage(''); setShowSuccess(false); }, 2000);
+          } else {
+            setScanMessage(`⚠ الصنف ${found.model_name} غير متوفر في المخزون`);
+            setTimeout(() => setScanMessage(''), 3000);
+          }
+          return;
+        }
+      }
+
+      setScanMessage(`❌ الصنف ${code} غير موجود في النظام`);
+      setTimeout(() => setScanMessage(''), 3000);
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      if (barcodeTimeout) clearTimeout(barcodeTimeout);
+    };
+  }, [cart]);
 
   useEffect(() => {
     const newTotal = cart.reduce((sum, item) => sum + (item.quantity * item.price), 0);
@@ -236,31 +371,55 @@ const SalesPage: React.FC = () => {
   // Search items for manual selection
   const handleSearchItems = async () => {
     setLoading(true);
+    const q = searchQuery.toLowerCase().trim();
+    if (!q) { setLoading(false); return; }
+    
+    let allItems: JewelryItem[] = [];
+    
+    // Try server first
     try {
-      // Search in localStorage
+      const response = await fetch(`/api/items/search/${encodeURIComponent(q)}`);
+      const result = await response.json();
+      if (result.success && result.data) {
+        allItems = result.data;
+      }
+    } catch {}
+    
+    // Fallback to localStorage
+    if (allItems.length === 0) {
       const storedItems = localStorage.getItem('jewelry_items');
       if (storedItems) {
         const parsedItems = JSON.parse(storedItems);
-        const q = searchQuery.toLowerCase().trim();
-        const filtered = parsedItems.filter((item: JewelryItem) =>
+        allItems = parsedItems.filter((item: JewelryItem) =>
           item.item_code?.toLowerCase().includes(q) ||
           item.model_name?.toLowerCase().includes(q) ||
           item.gold_item?.toLowerCase().includes(q)
         );
-        setSearchResults(filtered.filter((item: JewelryItem) => item.stock_qty > 0));
-      } else {
-        setSearchResults([]);
       }
-    } catch (err) {
-      console.error('Search error:', err);
     }
+    
+    setSearchResults(allItems.filter((item: JewelryItem) => item.stock_qty > 0));
     setLoading(false);
   };
 
   const loadAllItems = async () => {
     setLoading(true);
     try {
-      // Load from localStorage first (primary source)
+      // Try local server first
+      try {
+        const response = await fetch('/api/items');
+        const result = await response.json();
+        if (result.success && result.data && result.data.length > 0) {
+          localStorage.setItem('jewelry_items', JSON.stringify(result.data));
+          setSearchResults(result.data.filter((item: JewelryItem) => item.stock_qty > 0));
+          setLoading(false);
+          return;
+        }
+      } catch (err) {
+        console.log('Server error, loading from localStorage:', err);
+      }
+
+      // Fallback to localStorage
       const storedItems = localStorage.getItem('jewelry_items');
       if (storedItems) {
         const parsedItems = JSON.parse(storedItems);
@@ -318,8 +477,9 @@ const SalesPage: React.FC = () => {
       `━━━━━━━━━━━━━━━━━\n` +
       `📄 رقم الفاتورة: ${invoiceNumber}\n` +
       `👤 العميل: ${customerName}\n` +
-      `📅 التاريخ: ${new Date().toLocaleDateString('ar-LY')}\n` +
+      `📅 التاريخ: ${new Date().toLocaleDateString('en-CA')}\n` +
       `👨‍💼 البائع: ${sellerName}\n` +
+      `💳 طريقة الدفع: ${paymentMethod === 'cash' ? 'نقدي' : paymentMethod === 'card' ? 'بطاقة مصرفية' : 'حوالة بنكية'}\n` +
       `━━━━━━━━━━━━━━━━━\n\n` +
       `*تفاصيل المشتريات:*\n${itemsList}\n\n` +
       `━━━━━━━━━━━━━━━━━\n` +
@@ -333,190 +493,115 @@ const SalesPage: React.FC = () => {
     window.open(whatsappUrl, '_blank');
   };
 
-  // Print function - EXACT match with preview
-  const handlePrint = (printerType: 'invoice' | 'label' | 'normal') => {
+// Print after save - uses the shared template
+  const handlePrintAfterSave = (invoice: any) => {
     const settings = getSystemSettings();
-    const invoiceNumber = currentInvoiceNumber;
-    const now = new Date();
-    const dateStr = now.toLocaleString('ar-LY', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
+    const totalWeight = invoice.items.reduce((sum: number, item: any) => sum + (item.weight || 0) * (item.quantity || 1), 0);
+    printInvoice({
+      invoice_number: invoice.invoice_number,
+      customer_name: invoice.customer_name,
+      seller_name: invoice.seller_name,
+      created_at: invoice.created_at,
+      invoice_type: 'final',
+      total_amount: invoice.total_amount,
+      payment_method: invoice.payment_method,
+      transfer_number: invoice.transfer_number,
+      bank_name: invoice.bank_name,
+      card_receipt_number: invoice.card_receipt_number,
+      card_receipt_date: invoice.card_receipt_date,
+      items: invoice.items.map((item: any) => ({
+        model_name: item.model_name,
+        item_code: item.item_code,
+        karat: item.karat || '21',
+        weight: item.weight,
+        quantity: item.quantity,
+        price: item.price,
+        total: item.total || item.quantity * item.price,
+      })),
+    }, 'A5', 'portrait');
+  };
+
+// Print function - Use shared template for consistency
+  const handlePrint = (printerType: 'invoice' | 'label' | 'normal') => {
+    if (printerType !== 'invoice') {
+      // For label/normal, use existing logic (simplified)
+      const settings = getSystemSettings();
+      const invoiceNumber = currentInvoiceNumber;
+      const now = new Date();
+      const dateStr = now.toLocaleString('ar-LY', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+      const totalInWords = total > 0 ? numberToArabicWords(total) : 'صفر';
+      const totalWeight = cart.reduce((sum, item) => sum + (item.weight || 0) * (item.quantity || 1), 0);
+
+      // Build simple HTML for label/normal
+      let invoiceHTML = '';
+      if (printerType === 'label') {
+        // Label format - compact
+        invoiceHTML = `
+          <!DOCTYPE html>
+          <html dir="rtl" lang="ar">
+          <head><meta charset="UTF-8"><title>ملصق</title>
+          <style>@page{size:58mm auto;margin:0}body{font-family:Arial;font-size:11px;padding:5mm}table{width:100%;border-collapse:collapse}td{padding:2px;border:1px solid #333}</style></head>
+          <body><table>
+            <tr><td colspan="2" style="text-align:center;font-weight:bold;font-size:14px">${settings.storeName}</td></tr>
+            <tr><td>الصنف:</td><td>${cart.map(i=>i.model_name).join('، ')}</td></tr>
+            <tr><td>العيار:</td><td>${cart.map(i=>i.karat).join('، ')}</td></tr>
+            <tr><td>الوزن:</td><td>${totalWeight.toFixed(2)} غم</td></tr>
+            <tr><td>الإجمالي:</td><td>${formatNumber(total)} د.ل</td></tr>
+            <tr><td>العميل:</td><td>${customerName}</td></tr>
+            <tr><td>رقم:</td><td>${invoiceNumber}</td></tr>
+          </table></body></html>`;
+      } else {
+        // Normal format
+        invoiceHTML = `
+          <!DOCTYPE html>
+          <html dir="rtl" lang="ar">
+          <head><meta charset="UTF-8"><title>فاتورة</title>
+          <style>@page{margin:10mm}body{font-family:Arial;padding:10px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #333;padding:4px}</style></head>
+          <body>
+            <h2 style="text-align:center">${settings.storeName}</h2>
+            <p>فاتورة رقم: ${invoiceNumber}</p>
+            <p>التاريخ: ${dateStr}</p>
+            <p>العميل: ${customerName}</p>
+            <table><thead><tr><th>الصنف</th><th>العيار</th><th>الوزن</th><th>العدد</th><th>السعر</th></tr></thead>
+            <tbody>${cart.map((item, index) => `
+              <tr><td>${index+1}. ${item.model_name}</td><td>${item.karat}</td><td>${formatNumber(item.weight)} غم</td><td>${item.quantity}</td><td>${formatNumber(item.quantity * item.price)} د.ل</td>
+            `).join('')}</tbody></table>
+            <p>إجمالي الوزن: ${totalWeight.toFixed(2)} غم</p>
+            <p>الإجمالي: ${formatNumber(total)} د.ل</p>
+            <p>المبلغ كتابة: ${totalInWords}</p>
+          </body></html>`;
+      }
+
+      const printWindow = window.open('', '_blank');
+      if (!printWindow) { alert('يرجى السماح بالنوافذ المنبثقة للطباعة'); return; }
+      printWindow.document.write(invoiceHTML);
+      printWindow.document.close();
+      printWindow.focus();
+      setTimeout(() => { printWindow.print(); printWindow.close(); }, 300);
+      return;
+    }
+
+    // For invoice type, use shared template
+    printInvoice({
+      invoice_number: currentInvoiceNumber,
+      customer_name: customerName,
+      items: cart,
+      total_amount: total,
+      seller_name: sellerName,
+      created_at: new Date().toISOString(),
+      invoice_type: 'final',
+      payment_method: paymentMethod,
+      transfer_number: transferNumber,
+      bank_name: bankName,
+      card_receipt_number: cardReceiptNumber,
+      card_receipt_date: cardReceiptDate,
     });
-    const totalInWords = total > 0 ? numberToArabicWords(total) : 'صفر';
-
-    // Build table rows from cart - EXACT same as PreviewInvoice
-    const tableRows = cart.map((item, index) => `
-      <tr>
-        <td style="padding: 8px; border-bottom: 1px solid #e5e7eb;">${index + 1}</td>
-        <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; font-weight: bold;">${item.model_name}</td>
-        <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; text-align: center; font-family: monospace; font-size: 13px; background: #fefce8;">${item.item_code}</td>
-        <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; text-align: center; font-weight: bold; color: #ca8a04;">${item.karat}</td>
-        <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; text-align: center;">${formatNumber(item.weight)} غم</td>
-        <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; text-align: center;">${item.quantity}</td>
-        <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; text-align: left; font-weight: bold; color: #15803d;">${formatNumber(item.quantity * item.price)} ل.د</td>
-      </tr>
-    `).join('');
-
-    // EXACT same HTML as PreviewInvoice
-    const invoiceHTML = `
-      <!DOCTYPE html>
-      <html dir="rtl" lang="ar">
-      <head>
-        <meta charset="UTF-8">
-        <title>فاتورة - ${invoiceNumber}</title>
-        <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet">
-        <style>
-          * { box-sizing: border-box; margin: 0; padding: 0; }
-          body {
-            font-family: 'Tajawal', Arial, sans-serif;
-            direction: rtl;
-            text-align: right;
-            background: white;
-            color: #111827;
-            padding: 0;
-            font-size: 14px;
-            -webkit-print-color-adjust: exact;
-            print-color-adjust: exact;
-          }
-          .invoice-container { width: 100%; max-width: 210mm; margin: 0 auto; background: white; }
-
-          /* Header - EXACT match */
-          .header {
-            background: linear-gradient(to bottom, #eab308, #eab308, #eab308);
-            padding: 24px;
-            text-align: center;
-          }
-          .header h1 { font-size: 28px; font-weight: 700; color: #111827; margin: 0 0 4px 0; }
-          .header p { color: #1f2937; font-size: 14px; margin: 0; }
-
-          /* Invoice Info Section */
-          .invoice-info { padding: 24px; border-bottom: 1px solid #e5e7eb; }
-          .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-          .info-section { margin-bottom: 16px; }
-          .info-label { color: #6b7280; font-size: 12px; }
-          .info-value { font-size: 16px; font-weight: 700; border-bottom: 2px dashed #d1d5db; padding-bottom: 4px; display: inline-block; min-width: 150px; }
-          .info-value.mono { font-family: monospace; color: #ca8a04; font-size: 18px; }
-          .info-left { text-align: left; }
-
-          /* Items Table - EXACT match */
-          .items-section { padding: 24px; }
-          .items-table { width: 100%; border-collapse: collapse; }
-          .items-table thead tr { background: #1f2937; color: white; }
-          .items-table th { padding: 10px 8px; text-align: right; font-weight: 700; }
-          .items-table th.center { text-align: center; }
-          .items-table th.left { text-align: left; }
-          .items-table tbody tr:nth-child(even) { background: #f9fafb; }
-
-          /* Total Section - EXACT match */
-          .total-section { padding: 0 24px 24px; }
-          .total-box { background: #f3f4f6; border: 2px solid #eab308; border-radius: 12px; padding: 16px; }
-          .total-row { display: flex; justify-content: space-between; align-items: center; padding-bottom: 12px; margin-bottom: 12px; border-bottom: 2px solid #fde047; }
-          .total-label { font-size: 18px; font-weight: 700; }
-          .total-value { font-size: 28px; font-weight: 700; color: #15803d; }
-
-          .words-box { background: linear-gradient(to bottom right, #fefce8, #fef9c3, #fff); border: 2px solid #eab308; border-radius: 12px; padding: 12px; text-align: center; margin-top: 12px; }
-          .words-label { color: #a16207; font-size: 12px; font-weight: 700; margin-bottom: 4px; }
-          .words-value { font-size: 18px; font-weight: 700; color: #854d0e; }
-
-          /* Footer */
-          .footer { padding: 24px; text-align: center; border-top: 1px solid #e5e7eb; }
-          .footer-text { color: #6b7280; font-size: 14px; }
-
-          @page { size: A5; margin: 8mm; }
-          @media print {
-            body { padding: 0 !important; }
-            .invoice-container { max-width: none; }
-          }
-        </style>
-      </head>
-      <body>
-        <div class="invoice-container">
-          <div class="header">
-            <h1>${settings.storeName}</h1>
-            <p>أجود المجوهرات وأفخرها</p>
-            <p style="margin-top: 6px; font-size: 12px; color: #374151;">${settings.storeAddress} | ${settings.storePhone}</p>
-          </div>
-
-          <div class="invoice-info">
-            <div class="info-grid">
-              <div>
-                <p class="info-label">رقم الفاتورة</p>
-                <p class="info-value mono">${invoiceNumber}</p>
-              </div>
-              <div class="info-left">
-                <p class="info-label">التاريخ</p>
-                <p class="info-value">${dateStr}</p>
-              </div>
-            </div>
-            <div class="info-grid info-section">
-              <div>
-                <p class="info-label">العميل</p>
-                <p class="info-value">${customerName || '------------------------'}</p>
-              </div>
-              <div class="info-left">
-                <p class="info-label">البائع</p>
-                <p class="info-value">${sellerName}</p>
-              </div>
-            </div>
-          </div>
-
-          <div class="items-section">
-            <table class="items-table">
-              <thead>
-                <tr>
-                  <th>#</th>
-                  <th>الصنف</th>
-                  <th class="center">الكود</th>
-                  <th class="center">العيار</th>
-                  <th class="center">الوزن</th>
-                  <th class="center">العدد</th>
-                  <th class="left">الإجمالي</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${tableRows}
-              </tbody>
-            </table>
-          </div>
-
-          <div class="total-section">
-            <div class="total-box">
-              <div class="total-row">
-                <span class="total-label">الإجمالي:</span>
-                <span class="total-value">${formatNumber(total)} ل.د</span>
-              </div>
-              <div class="words-box">
-                <p class="words-label">المبلغ كتابة:</p>
-                <p class="words-value">${totalInWords}</p>
-              </div>
-            </div>
-          </div>
-
-          <div class="footer">
-            <p class="footer-text">شكراً لتعاملكم معنا - ${settings.storeName}</p>
-            <p style="color: #9ca3af; font-size: 13px; margin-top: 4px;">${settings.storeAddress} | ${settings.storePhone}</p>
-          </div>
-        </div>
-
-        <script>
-          window.onload = function() {
-            setTimeout(function() {
-              window.print();
-              window.close();
-            }, 300);
-          };
-        </script>
-      </body>
-      </html>
-    `;
-
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) { alert('يرجى السماح بالنوافذ المنبثقة للطباعة'); return; }
-    printWindow.document.write(invoiceHTML);
-    printWindow.document.close();
   };
 
   // Invoice Preview Component
@@ -533,6 +618,7 @@ const SalesPage: React.FC = () => {
     };
 
     const totalInWords = total > 0 ? numberToArabicWords(total) : 'صفر';
+    const totalWeight = cart.reduce((sum, item) => sum + (item.weight || 0) * (item.quantity || 1), 0);
 
     return (
       <div className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4" onClick={() => setShowInvoicePreview(false)}>
@@ -565,6 +651,15 @@ const SalesPage: React.FC = () => {
                 <p className="text-gray-500 text-sm">البائع</p>
                 <p className="text-lg font-bold border-b-2 border-dashed border-gray-300 pb-1">{sellerName}</p>
               </div>
+            </div>
+            <div className="mt-4 p-3 bg-gray-100 rounded-lg">
+              <p className="text-gray-500 text-sm">طريقة الدفع</p>
+              <p className={`text-lg font-bold ${
+                paymentMethod === 'cash' ? 'text-green-600' :
+                paymentMethod === 'card' ? 'text-blue-600' : 'text-purple-600'
+              }`}>
+                {paymentMethod === 'cash' ? '💵 نقدي' : paymentMethod === 'card' ? '💳 بطاقة مصرفية' : '🏦 حوالة بنكية'}
+              </p>
             </div>
           </div>
 
@@ -604,6 +699,10 @@ const SalesPage: React.FC = () => {
               <div className="flex justify-between items-center mb-4">
                 <span className="text-xl font-bold">الإجمالي:</span>
                 <span className="text-3xl font-bold text-green-700">{formatNumber(total)} ل.د</span>
+              </div>
+              <div className="flex justify-between items-center mb-4 p-2 bg-white rounded-lg border border-yellow-300">
+                <span className="text-lg font-bold text-gray-700">إجمالي الوزن:</span>
+                <span className="text-2xl font-bold text-yellow-700">{totalWeight.toFixed(2)} غم</span>
               </div>
               <div className="bg-yellow-50 border border-yellow-500 rounded-lg p-3 text-center">
                 <p className="text-sm text-yellow-700">المبلغ كتابة:</p>
@@ -672,6 +771,11 @@ const SalesPage: React.FC = () => {
       }
       localStorage.setItem('jewelry_items', JSON.stringify(storedItems));
 
+      const invoiceLinkKey = `sale-link:${customerName}|${new Date().toISOString().slice(0,10)}|${currentInvoiceNumber}`;
+      const relatedGoldOrder = JSON.parse(localStorage.getItem('gold_invoices') || '[]').find((inv: any) =>
+        inv.customer_name === customerName || inv.invoice_number === currentInvoiceNumber
+      );
+
       const invoice = {
         id: Date.now(),
         invoice_number: currentInvoiceNumber,
@@ -679,18 +783,37 @@ const SalesPage: React.FC = () => {
         items: cart.map(item => ({ ...item, quantity: item.quantity, total: item.quantity * item.price })),
         total_amount: total,
         seller_name: sellerName,
-        seller_code: '001',
+        seller_code: sellerName === 'خالد تركي' ? 'U001' : sellerName,
+        payment_method: paymentMethod,
+        transfer_number: transferNumber,
+        bank_name: bankName,
+        card_receipt_number: cardReceiptNumber,
+        card_receipt_date: cardReceiptDate,
+        related_order_number: relatedGoldOrder?.invoice_number || '',
+        related_receipt_number: relatedGoldOrder?.receipt_number || '',
+        linked_gold_invoice_number: relatedGoldOrder?.invoice_number || '',
+        invoice_link_key: relatedGoldOrder?.invoice_link_key || invoiceLinkKey,
         created_at: new Date().toISOString(),
       };
 
-      // Save invoice to localStorage
+      // Save to Supabase first
+      if (isSupabaseAvailable()) {
+        try {
+          await jewelryApi.confirmSale(invoice);
+          console.log('Invoice saved to Supabase:', invoice.invoice_number);
+        } catch (err) {
+          console.log('Supabase error, saving to localStorage:', err);
+        }
+      }
+
+      // Also save to localStorage as backup
       const existingInvoices = JSON.parse(localStorage.getItem('saved_invoices') || '[]');
       existingInvoices.unshift(invoice);
       localStorage.setItem('saved_invoices', JSON.stringify(existingInvoices.slice(0, 100)));
 
       // Auto-record sale in treasury
       try {
-        recordSale(total, customerName || 'عميل نقدي', invoice.invoice_number);
+        recordSale(total, customerName || 'عميل نقدي', invoice.invoice_number, paymentMethod);
       } catch (e) {
         console.error('Error recording sale to treasury:', e);
       }
@@ -698,11 +821,17 @@ const SalesPage: React.FC = () => {
       localStorage.setItem('last_customer_name', JSON.stringify(customerName));
       cartStorage.clearCart();
       setCart([]);
-      navigate('/invoice', { state: { invoice } });
+      setTransferNumber('');
+      setBankName('');
+      setCardReceiptNumber('');
+      setCardReceiptDate('');
+      setPaymentMethod('cash');
+      setSavedInvoice(invoice);
+      setIsSaving(false);
+      setShowInvoicePreview(false);
     } catch (err) {
       console.error('Checkout error:', err);
       alert('حدث خطأ أثناء تأكيد البيع!');
-    } finally {
       setIsSaving(false);
       setShowInvoicePreview(false);
     }
@@ -713,6 +842,26 @@ const SalesPage: React.FC = () => {
       {showSuccess && (
         <div className="fixed top-20 left-1/2 -translate-x-1/2 bg-green-600 text-white px-6 py-3 rounded-xl shadow-xl flex items-center gap-2 animate-bounce z-50">
           <CheckCircle className="w-5 h-5" />تمت إضافة القطعة للسلة
+        </div>
+      )}
+
+      {/* Saved Invoice Success Modal */}
+      {savedInvoice && (
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+          <div className="bg-gray-800 rounded-2xl shadow-2xl max-w-md w-full p-8 border border-green-600/30 text-center">
+            <CheckCircle className="w-20 h-20 text-green-400 mx-auto mb-4" />
+            <h2 className="text-2xl font-bold text-green-400 mb-2">تم حفظ الفاتورة بنجاح</h2>
+            <p className="text-gray-400 mb-1">رقم الفاتورة: <span className="text-yellow-400 font-bold">{savedInvoice.invoice_number}</span></p>
+            <p className="text-gray-400 mb-6">العميل: <span className="text-white font-bold">{savedInvoice.customer_name}</span></p>
+            <div className="flex gap-3">
+              <button onClick={() => { handlePrintAfterSave(savedInvoice); setSavedInvoice(null); navigate('/invoices'); }} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-xl flex items-center justify-center gap-2 transition-all">
+                <Printer className="w-5 h-5" />طباعة الفاتورة
+              </button>
+              <button onClick={() => { setSavedInvoice(null); navigate('/invoices'); }} className="flex-1 bg-gray-600 hover:bg-gray-500 text-white font-bold py-4 rounded-xl flex items-center justify-center gap-2 transition-all">
+                <ArrowRight className="w-5 h-5" />عرض الفواتير
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -833,7 +982,19 @@ const SalesPage: React.FC = () => {
               <div className="flex gap-3">
                 <div className="flex-1 relative">
                   <Search className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                  <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="ابحث بالكود أو الاسم..." className="w-full bg-gray-700 border border-gray-600 rounded-lg pr-12 pl-4 py-3 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-yellow-500"
+                  <input type="text" value={searchQuery} onChange={(e) => {
+                    let val = e.target.value;
+                    const arabicMap: Record<string, string> = {
+                      '١':'1','٢':'2','٣':'3','٤':'4','٥':'5','٦':'6','٧':'7','٨':'8','٩':'9','٠':'0',
+                      'ض':'Q','ص':'W','ث':'E','ق':'R','ف':'T','غ':'Y','ع':'U','ه':'I','خ':'O','ح':'P',
+                      'ج':'A','ش':'S','ي':'D','ب':'F','ل':'G','ن':'H','م':'J','ك':'L','ت':'Z',
+                      'ا':'A','ى':'A','ء':'Q','ؤ':'Q',
+                    };
+                    val = val.replace(/[\u0660-\u0669\u06F0-\u06F9]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0x0660 + 48));
+                    val = val.replace(/[\u0621-\u064A]/g, (ch) => arabicMap[ch] || ch);
+                    setSearchQuery(val);
+                  }} placeholder="ابحث بالكود أو الاسم..." className="w-full bg-gray-700 border border-gray-600 rounded-lg pr-12 pl-4 py-3 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-yellow-500"
+                    dir="ltr" lang="en"
                     onKeyDown={(e) => e.key === 'Enter' && handleSearchItems()} />
                 </div>
                 <button onClick={handleSearchItems} className="bg-yellow-600 px-6 py-3 rounded-lg text-gray-900 font-bold">بحث</button>
@@ -883,11 +1044,85 @@ const SalesPage: React.FC = () => {
         <input type="text" value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="أدخل اسم العميل..." className="w-full bg-gray-700 border border-gray-600 text-white px-4 py-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-yellow-500" />
       </div>
 
+      {/* Payment Method Selection */}
+      <div className="bg-gray-800 rounded-2xl p-5 mb-6 border border-yellow-600/20">
+        <label className="block text-yellow-400 font-bold mb-3">طريقة الدفع</label>
+        <div className="grid grid-cols-3 gap-3">
+          <button
+            type="button"
+            onClick={() => setPaymentMethod('cash')}
+            className={`p-4 rounded-xl border-2 flex flex-col items-center gap-2 transition-all ${
+              paymentMethod === 'cash'
+                ? 'border-green-500 bg-green-600/20 text-green-400'
+                : 'border-gray-600 bg-gray-700 text-gray-300 hover:border-gray-500'
+            }`}
+          >
+            <Banknote className="w-8 h-8" />
+            <span className="font-bold text-sm">نقدي</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setPaymentMethod('card')}
+            className={`p-4 rounded-xl border-2 flex flex-col items-center gap-2 transition-all ${
+              paymentMethod === 'card'
+                ? 'border-blue-500 bg-blue-600/20 text-blue-400'
+                : 'border-gray-600 bg-gray-700 text-gray-300 hover:border-gray-500'
+            }`}
+          >
+            <CreditCard className="w-8 h-8" />
+            <span className="font-bold text-sm">بطاقة مصرفية</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setPaymentMethod('transfer')}
+            className={`p-4 rounded-xl border-2 flex flex-col items-center gap-2 transition-all ${
+              paymentMethod === 'transfer'
+                ? 'border-purple-500 bg-purple-600/20 text-purple-400'
+                : 'border-gray-600 bg-gray-700 text-gray-300 hover:border-gray-500'
+            }`}
+          >
+            <Building2 className="w-8 h-8" />
+            <span className="font-bold text-sm">حوالة بنكية</span>
+          </button>
+        </div>
+        <div className="mt-3 text-center">
+          <span className="text-gray-400 text-sm">الطريقة المحددة: </span>
+          <span className={`font-bold ${
+            paymentMethod === 'cash' ? 'text-green-400' :
+            paymentMethod === 'card' ? 'text-blue-400' : 'text-purple-400'
+          }`}>
+            {paymentMethod === 'cash' ? 'نقدي' : paymentMethod === 'card' ? 'بطاقة مصرفية' : 'حوالة بنكية'}
+          </span>
+        </div>
+        {/* Payment Details */}
+        {paymentMethod === 'transfer' && (
+          <div className="mt-4 grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-gray-400 text-sm mb-1">رقم الحوالة</label>
+              <input type="text" value={transferNumber} onChange={(e) => setTransferNumber(e.target.value)} placeholder="أدخل رقم الحوالة..." className="w-full bg-gray-700 border border-gray-600 text-white px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" dir="ltr" />
+            </div>
+            <div>
+              <label className="block text-gray-400 text-sm mb-1">اسم البنك</label>
+              <input type="text" value={bankName} onChange={(e) => setBankName(e.target.value)} placeholder="أدخل اسم البنك..." className="w-full bg-gray-700 border border-gray-600 text-white px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" />
+            </div>
+          </div>
+        )}
+        {paymentMethod === 'card' && (
+          <div className="mt-4 grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-gray-400 text-sm mb-1">رقم فاتورة الماكينة</label>
+              <input type="text" value={cardReceiptNumber} onChange={(e) => setCardReceiptNumber(e.target.value)} placeholder="رقم فاتورة الخصم..." className="w-full bg-gray-700 border border-gray-600 text-white px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" dir="ltr" />
+            </div>
+            <div>
+              <label className="block text-gray-400 text-sm mb-1">تاريخ الفاتورة</label>
+              <input type="date" value={cardReceiptDate} onChange={(e) => setCardReceiptDate(e.target.value)} className="w-full bg-gray-700 border border-gray-600 text-white px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" dir="ltr" lang="en" />
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* Add Item Options */}
-      <div className="grid grid-cols-2 gap-4 mb-6">
-        <button onClick={startCamera} className="bg-gradient-to-r from-yellow-600 to-yellow-500 hover:from-yellow-700 hover:to-yellow-600 text-gray-900 font-bold py-5 rounded-2xl flex items-center justify-center gap-3 transition-all shadow-xl">
-          <Camera className="w-7 h-7" /><span className="text-lg">مسح باركود</span>
-        </button>
+      <div className="grid grid-cols-1 gap-4 mb-6">
         <button onClick={() => { setShowItemSelector(true); loadAllItems(); }} className="bg-gradient-to-r from-green-600 to-green-500 hover:from-green-700 hover:to-green-600 text-white font-bold py-5 rounded-2xl flex items-center justify-center gap-3 transition-all shadow-xl">
           <Package className="w-7 h-7" /><span className="text-lg">اختيار من المخزن</span>
         </button>
@@ -897,7 +1132,14 @@ const SalesPage: React.FC = () => {
       <div className="bg-gray-800 rounded-2xl shadow-2xl overflow-hidden border border-yellow-600/20">
         <div className="bg-gradient-to-r from-gray-700 to-gray-600 px-6 py-4 flex items-center justify-between">
           <h2 className="text-xl font-bold text-yellow-400 flex items-center gap-2"><ShoppingCart className="w-6 h-6" />سلة المبيعات</h2>
-          <span className="bg-yellow-600 text-white px-3 py-1 rounded-full">{cart.length} قطعة</span>
+          <div className="flex items-center gap-3">
+            {cart.length > 0 && (
+              <button onClick={() => { if (confirm('هل أنت متأكد من تفريغ السلة؟')) { cartStorage.clearCart(); setCart([]); } }} className="bg-red-600 hover:bg-red-500 text-white px-3 py-1 rounded-full text-sm font-bold flex items-center gap-1 transition-all">
+                <Trash2 className="w-4 h-4" />تفريغ السلة
+              </button>
+            )}
+            <span className="bg-yellow-600 text-white px-3 py-1 rounded-full">{cart.length} قطعة</span>
+          </div>
         </div>
         <div className="p-4">
           {cart.length === 0 ? (
@@ -946,7 +1188,7 @@ const SalesPage: React.FC = () => {
               <span className="text-3xl font-bold text-green-400">{formatCurrency(total)}</span>
             </div>
             <div className="flex gap-3">
-              <button onClick={() => { setCurrentInvoiceNumber(generateInvoiceNumber()); setShowInvoicePreview(true); }} className="flex-1 flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-xl transition-all"><Eye className="w-6 h-6" />معاينة</button>
+              <button onClick={() => { const num = getInvoiceNumber(); if (num) { setCurrentInvoiceNumber(num); setShowInvoicePreview(true); } else { alert('لا يوجد دفتر فواتير نشط. يرجى إنشاء دفتر فواتير أولاً.'); } }} className="flex-1 flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-xl transition-all"><Eye className="w-6 h-6" />معاينة</button>
               <button onClick={sendToWhatsApp} className="flex-1 flex items-center justify-center gap-2 bg-green-600 hover:bg-green-500 text-white font-bold py-4 rounded-xl transition-all"><Send className="w-6 h-6" />WhatsApp</button>
               <button onClick={handleCheckout} disabled={!customerName.trim() || isSaving} className="flex-1 flex items-center justify-center gap-2 bg-yellow-600 hover:bg-yellow-500 text-gray-900 font-bold py-4 rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"><Printer className="w-6 h-6" />تأكيد البيع</button>
             </div>

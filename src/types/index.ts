@@ -28,4 +28,8 @@ export interface SaleInvoice {
   seller_name: string;
   seller_code: string;
   created_at: string;
+  related_order_number?: string;
+  related_receipt_number?: string;
+  linked_gold_invoice_number?: string;
+  invoice_link_key?: string;
 }

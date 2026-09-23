@@ -1,5 +1,7 @@
 // Gold Price API - Using MetalPriceAPI.com as provided by user
 // API Key: e9721b5be44589c4beacac8703b5127d
+import { updateGoldPrices, updateExchangeRate } from './settings';
+
 const GOLD_API_KEY = 'e9721b5be44589c4beacac8703b5127d';
 const METALPRICE_API_URL = `https://api.metalpriceapi.com/v1/latest?api_key=${GOLD_API_KEY}&base=USD&currencies=LYD,EUR,XAU,XAG`;
 
@@ -114,9 +116,10 @@ export const fetchGoldPrices = async (): Promise<GoldPriceData> => {
     // Extract rates from the response
     const rates = data.rates || {};
 
-    // XAU = Gold (per troy oz), XAG = Silver (per troy oz)
-    const goldPricePerOz = rates.XAU || 0; // Price in USD per oz
-    const silverPricePerOz = rates.XAG || 0; // Price in USD per oz
+    // XAU rate from API = how many oz per 1 USD (inverted)
+    // USDXAU = price of 1 oz gold in USD
+    const goldPricePerOz = rates.USDXAU || (rates.XAU ? 1 / rates.XAU : 0);
+    const silverPricePerOz = rates.USDXAG || (rates.XAG ? 1 / rates.XAG : 0);
     const usdToLyd = rates.LYD || 4.85; // USD to LYD exchange rate
 
     if (!goldPricePerOz || goldPricePerOz === 0) {
@@ -146,6 +149,21 @@ export const fetchGoldPrices = async (): Promise<GoldPriceData> => {
 
     console.log('Calculated prices:', prices);
     saveToCache(prices, 'api');
+    
+    // Also save to system settings so Dashboard and other pages can use them
+    try {
+      updateGoldPrices({
+        gold24k: prices.gold24k,
+        gold21k: prices.gold21k,
+        gold18k: prices.gold18k,
+        silver: prices.silver,
+      });
+      // Also update exchange rate
+      updateExchangeRate(prices.usdToLyd);
+    } catch (e) {
+      console.log('Failed to save to settings:', e);
+    }
+    
     return prices;
 
   } catch (error) {
@@ -175,98 +193,65 @@ export const calculateKaratPrices = (gold24kLyd: number, usdToLyd: number = 4.85
   };
 };
 
-// Get real historical data from cache
+// Get real historical data from localStorage (accumulated over time)
 export const getPriceHistory = (days: number = 30): PriceHistory[] => {
   const historyKey = 'gold_price_history';
   try {
     const stored = localStorage.getItem(historyKey);
     if (stored) {
       const data = JSON.parse(stored);
-      const now = Date.now();
-      // Check if history is fresh (less than 1 hour old)
-      if (now - data.timestamp < 3600000) {
+      if (data.history && Array.isArray(data.history)) {
         return data.history.slice(-days);
       }
     }
   } catch {
     // Ignore errors
   }
-
-  // Generate new history based on cached/current prices
-  return generatePriceHistory(days);
+  return [];
 };
 
-// Generate historical data based on cached or current prices
-export const generatePriceHistory = (days: number = 30): PriceHistory[] => {
-  const history: PriceHistory[] = [];
-
-  // Get current prices from cache or settings
-  let currentGold24k = 0;
-  let currentSilver = 0;
-
+// Save current price to history (call this when fetching prices)
+export const savePriceToHistory = (prices: GoldPriceData): void => {
+  if (prices.gold24k <= 0) return;
+  
+  const historyKey = 'gold_price_history';
+  const today = new Date().toLocaleDateString('en-CA');
+  
   try {
-    const cached = getCachedPrices();
-    if (cached && cached.prices.gold24k > 0) {
-      currentGold24k = cached.prices.gold24k;
-      currentSilver = cached.prices.silver;
-    } else {
-      // Try to get from settings
-      const settings = JSON.parse(localStorage.getItem('system_settings') || '{}');
-      if (settings.goldPrices?.gold24k > 0) {
-        currentGold24k = settings.goldPrices.gold24k;
-        currentSilver = settings.goldPrices.silver || 0;
-      }
+    const stored = localStorage.getItem(historyKey);
+    let data = { history: [] as PriceHistory[], timestamp: Date.now() };
+    
+    if (stored) {
+      data = JSON.parse(stored);
     }
-  } catch {
-    // Ignore errors
-  }
-
-  // If no prices available, return empty array
-  if (currentGold24k === 0) {
-    return [];
-  }
-
-  for (let i = days; i >= 0; i--) {
-    const date = new Date();
-    date.setDate(date.getDate() - i);
-
-    // Add realistic market fluctuation
-    const dayOfWeek = date.getDay();
-    const baseVariation = (Math.random() - 0.5) * 4; // ±2% fluctuation
-    const weekendEffect = (dayOfWeek === 0 || dayOfWeek === 6) ? -1 : 0;
-    const trendEffect = (days - i) * 0.05; // Gradual trend
-
-    const goldVariation = baseVariation + weekendEffect + trendEffect;
-    const goldPrice = currentGold24k * (1 + goldVariation / 100);
-    const silverPrice = currentSilver * (1 + (Math.random() - 0.5) * 2 / 100);
-
-    history.push({
-      date: date.toLocaleDateString('ar-LY', { month: 'short', day: 'numeric' }),
-      gold24k: Math.round(goldPrice * 100) / 100,
-      gold21k: Math.round(goldPrice * 0.875 * 100) / 100,
-      gold18k: Math.round(goldPrice * 0.75 * 100) / 100,
-      silver: Math.round(silverPrice * 100) / 100,
-    });
-  }
-
-  // Save to localStorage
-  try {
-    localStorage.setItem('gold_price_history', JSON.stringify({
-      history,
-      timestamp: Date.now(),
-    }));
+    
+    // Check if today's entry already exists
+    const existingIndex = data.history.findIndex((h: PriceHistory) => h.date === today);
+    
+    const entry: PriceHistory = {
+      date: today,
+      gold24k: prices.gold24k,
+      gold21k: prices.gold21k,
+      gold18k: prices.gold18k,
+      silver: prices.silver,
+    };
+    
+    if (existingIndex >= 0) {
+      data.history[existingIndex] = entry;
+    } else {
+      data.history.push(entry);
+    }
+    
+    data.timestamp = Date.now();
+    localStorage.setItem(historyKey, JSON.stringify(data));
   } catch {
     // Ignore storage errors
   }
-
-  return history;
 };
 
-// Keep old function for compatibility
-export const generateMockHistory = generatePriceHistory;
-
-// Analyze price change
+// Price change analysis (real data only)
 export const analyzePriceChange = (current: number, previous: number) => {
+  if (previous === 0) return { change: '0', percentage: '0', direction: 'up', isPositive: true };
   const change = current - previous;
   const percentage = ((change / previous) * 100).toFixed(2);
   const direction = change >= 0 ? 'up' : 'down';
@@ -279,161 +264,34 @@ export const analyzePriceChange = (current: number, previous: number) => {
   };
 };
 
-// AI Market Sentiment Analysis
-export const analyzeMarketSentiment = (
-  goldHistory: PriceHistory[],
-  _silverHistory: PriceHistory[]
-) => {
-  if (goldHistory.length < 7) {
-    return {
-      sentiment: 'neutral',
-      score: 50,
-      trend: '0',
-      recommendation: 'انتظر حتى تتوفر بيانات كافية',
-    };
-  }
-
-  // Calculate 7-day trend
-  const lastWeek = goldHistory.slice(-7);
-  const firstPrice = lastWeek[0].gold24k;
-  const lastPrice = lastWeek[lastWeek.length - 1].gold24k;
-  const trend = ((lastPrice - firstPrice) / firstPrice) * 100;
-
-  // Calculate volatility (standard deviation)
-  const prices = goldHistory.slice(-14).map(p => p.gold24k);
-  const mean = prices.reduce((a, b) => a + b, 0) / prices.length;
-  const variance = prices.reduce((sum, p) => sum + Math.pow(p - mean, 2), 0) / prices.length;
-  const volatility = Math.sqrt(variance);
-  const volatilityPercent = (volatility / mean) * 100;
-
-  // Calculate momentum
-  const last3 = goldHistory.slice(-3);
-  const prev3 = goldHistory.slice(-6, -3);
-  const last3Avg = last3.reduce((s, p) => s + p.gold24k, 0) / 3;
-  const prev3Avg = prev3.length > 0 ? prev3.reduce((s, p) => s + p.gold24k, 0) / prev3.length : last3Avg;
-  const momentum = prev3Avg > 0 ? ((last3Avg - prev3Avg) / prev3Avg) * 100 : 0;
-
-  // Determine sentiment based on multiple factors
-  let sentiment: 'bullish' | 'bearish' | 'neutral';
-  let score: number;
-  let recommendation: string;
-
-  if (trend > 2 && momentum > 0.5 && volatilityPercent < 3) {
-    sentiment = 'bullish';
-    score = Math.min(95, 60 + trend * 5 + momentum * 2);
-    recommendation = 'السوق صاعد بقوة - فرصة للشراء';
-  } else if (trend > 1) {
-    sentiment = 'bullish';
-    score = Math.min(80, 55 + trend * 5);
-    recommendation = 'اتجاه صاعد - راقب الفرصة';
-  } else if (trend < -2 && momentum < -0.5 && volatilityPercent < 3) {
-    sentiment = 'bearish';
-    score = Math.max(5, 40 + trend * 5 + momentum * 2);
-    recommendation = 'السوق هابط - انتظر حتى يستقر';
-  } else if (trend < -1) {
-    sentiment = 'bearish';
-    score = Math.max(20, 45 + trend * 5);
-    recommendation = 'اتجاه هابط - لا تشترِ الآن';
-  } else if (volatilityPercent > 5) {
-    sentiment = 'neutral';
-    score = 40;
-    recommendation = 'تذبذب عالي - لا تتخذ قرارات';
-  } else if (momentum > 0.3) {
-    sentiment = 'bullish';
-    score = 60;
-    recommendation = 'زخم إيجابي - راقب';
-  } else if (momentum < -0.3) {
-    sentiment = 'bearish';
-    score = 40;
-    recommendation = 'زخم سلبي - راقب';
-  } else {
-    sentiment = 'neutral';
-    score = 50;
-    recommendation = 'السوق مستقر - راقب الأسعار';
-  }
-
-  return {
-    sentiment,
-    score: Math.round(score),
-    trend: trend.toFixed(2),
-    recommendation,
-  };
-};
-
-// Price prediction using simple linear regression
-export const predictNextPrice = (history: PriceHistory[], days: number = 7) => {
-  if (history.length < days) {
-    return {
-      tomorrow: history[history.length - 1]?.gold24k || 100,
-      nextWeek: history[history.length - 1]?.gold24k || 100,
-      confidence: 'low' as const,
-    };
-  }
-
-  const recentPrices = history.slice(-days);
-
-  // Simple moving average
-  const avgPrice = recentPrices.reduce((sum, p) => sum + p.gold24k, 0) / days;
-
-  // Calculate trend using last 3 days vs previous 3 days
-  const last3Avg = history.slice(-3).reduce((sum, p) => sum + p.gold24k, 0) / 3;
-  const prev3Avg = history.slice(-6, -3);
-  const avgPrev3 = prev3Avg.length > 0 ? prev3Avg.reduce((sum, p) => sum + p.gold24k, 0) / prev3Avg.length : last3Avg;
-  const momentum = avgPrev3 > 0 ? (last3Avg - avgPrev3) / avgPrev3 : 0;
-
-  // Predict next values with momentum
-  const tomorrowPrediction = avgPrice * (1 + momentum);
-  const weeklyPrediction = avgPrice * (1 + momentum * 3);
-
-  // Calculate confidence based on data consistency
-  const variance = recentPrices.reduce((sum, p) => sum + Math.pow(p.gold24k - avgPrice, 2), 0) / days;
-  const stdDev = Math.sqrt(variance);
-  const coefficientOfVariation = avgPrice > 0 ? (stdDev / avgPrice) * 100 : 0;
-
-  let confidence: 'high' | 'medium' | 'low';
-  if (coefficientOfVariation < 1) {
-    confidence = 'high';
-  } else if (coefficientOfVariation < 3) {
-    confidence = 'medium';
-  } else {
-    confidence = 'low';
-  }
-
-  return {
-    tomorrow: Math.round(tomorrowPrediction * 100) / 100,
-    nextWeek: Math.round(weeklyPrediction * 100) / 100,
-    confidence,
-  };
-};
-
-// Get market insights based on current prices
+// Get market insights based on current prices (real data only)
 export const getMarketInsights = (prices: GoldPriceData) => {
   const insights = [];
   const pricePerOz = prices.goldPriceUsd;
 
-  // Gold price level analysis
+  // Gold price level analysis - based on real market data
   if (pricePerOz > 3500) {
     insights.push({
       type: 'warning',
-      text: 'الذهب عند مستويات مرتفعة جداً',
+      text: 'الذهب عند مستويات مرتفعة جداً عالمياً',
       icon: '⚠️'
     });
   } else if (pricePerOz > 3000) {
     insights.push({
       type: 'info',
-      text: 'الذهب عند مستويات عالية',
+      text: 'الذهب عند مستويات عالية عالمياً',
       icon: '📊'
     });
   } else if (pricePerOz > 0 && pricePerOz < 2500) {
     insights.push({
       type: 'opportunity',
-      text: 'الذهب عند مستويات دعم جيدة',
+      text: 'الذهب عند مستويات دعم جيدة عالمياً',
       icon: '💡'
     });
   }
 
-  // Gold/Silver ratio analysis
-  if (prices.silver > 0) {
+  // Gold/Silver ratio analysis - based on real data
+  if (prices.silver > 0 && prices.gold24k > 0) {
     const goldSilverRatio = prices.gold24k / prices.silver;
     if (goldSilverRatio > 85) {
       insights.push({
@@ -453,7 +311,7 @@ export const getMarketInsights = (prices: GoldPriceData) => {
   return insights;
 };
 
-// Update dashboard prices based on real API
+// Update dashboard prices based on real API only
 export const updateDashboardPrices = async (
   setGoldPrices: (prices: GoldPriceData) => void,
   setLastUpdate: (date: Date) => void,
@@ -464,19 +322,25 @@ export const updateDashboardPrices = async (
     const prices = await fetchGoldPrices();
     setGoldPrices(prices);
     setLastUpdate(new Date());
+    
+    // Save to history for future reference
+    savePriceToHistory(prices);
 
-    // Get history and analyze
-    const history = getPriceHistory(30);
-    const analysis = analyzeMarketSentiment(history, history);
+    // Get real insights (no fake analysis)
+    const insights = getMarketInsights(prices);
     setMarketAnalysis({
-      sentiment: analysis.sentiment,
-      score: analysis.score,
-      trend: analysis.trend,
-      recommendation: analysis.recommendation,
+      sentiment: 'neutral',
+      score: 0,
+      trend: '0',
+      recommendation: insights.length > 0 ? insights[0].text : 'الأسعار مستقرة - لا توجد توقعات وهمية',
     });
 
-    const pred = predictNextPrice(history);
-    setPrediction(pred);
+    // No fake predictions - just show current price
+    setPrediction({
+      tomorrow: 0,
+      nextWeek: 0,
+      confidence: 'none',
+    });
   } catch (error) {
     console.error('Failed to update dashboard prices:', error);
   }

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Image, Search, Filter, Grid, List, X, ShoppingCart, Gem, Eye, EyeOff, Phone, Video, ChevronLeft, ChevronRight, Heart, Share2, Star, MessageCircle } from 'lucide-react';
-import { JewelryItem, supabase } from '../services/supabase';
+import { JewelryItem, supabase, isSupabaseAvailable } from '../services/supabase';
 
 // أيقونة واتساب مخصصة
 const WhatsAppIcon: React.FC<{ className?: string }> = ({ className }) => (
@@ -33,19 +33,23 @@ const PublicGalleryPage: React.FC = () => {
   const fetchItems = async () => {
     try {
       setLoading(true);
-      // Load from Supabase or localStorage
-      try {
-        const { data, error } = await supabase
-          .from('jewelry_items')
-          .select('*')
-          .eq('show_in_gallery', true)
-          .order('created_at', { ascending: false });
+      // Try Supabase first
+      if (isSupabaseAvailable() && supabase) {
+        try {
+          const { data, error } = await supabase
+            .from('jewelry_items')
+            .select('*')
+            .eq('show_in_gallery', true)
+            .order('created_at', { ascending: false });
 
-        if (!error && data) {
-          setItems(data.filter((item: JewelryItem) => item.stock_qty > 0));
+          if (!error && data) {
+            setItems(data.filter((item: JewelryItem) => item.stock_qty > 0));
+            setLoading(false);
+            return;
+          }
+        } catch (e) {
+          console.log('Supabase not available, using localStorage');
         }
-      } catch (e) {
-        console.log('Using localStorage fallback');
       }
 
       // Fallback to localStorage
@@ -150,12 +154,17 @@ const PublicGalleryPage: React.FC = () => {
     if (item.image_url) {
       images.push({ url: item.image_url, type: 'image' });
     }
-    // Add gallery images if any
-    if ((item as any).gallery_images) {
-      const galleryImages = JSON.parse((item as any).gallery_images);
-      galleryImages.forEach((img: any) => {
-        images.push({ url: img.url, type: img.type || 'image' });
+    // Add gallery images from localStorage
+    try {
+      const allGalleryImages = JSON.parse(localStorage.getItem('gallery_images') || '[]');
+      const itemGalleryImages = allGalleryImages.filter((img: any) => img.item_code === item.item_code);
+      itemGalleryImages.forEach((img: any) => {
+        if (img.url) {
+          images.push({ url: img.url, type: img.type || 'image' });
+        }
       });
+    } catch (e) {
+      // ignore parse errors
     }
 
     // Add default placeholder if no images
@@ -170,23 +179,28 @@ const PublicGalleryPage: React.FC = () => {
   };
 
   const trackItemView = async (itemCode: string) => {
-    try {
-      const { data } = await supabase
-        .from('jewelry_items')
-        .select('view_count')
-        .eq('item_code', itemCode)
-        .single();
+    // Track in localStorage
+    const views = parseInt(localStorage.getItem(`view_${itemCode}`) || '0');
+    localStorage.setItem(`view_${itemCode}`, String(views + 1));
+    localStorage.setItem(`last_view_${itemCode}`, new Date().toISOString());
 
-      const currentViews = data?.view_count || 0;
+    // Try Supabase tracking
+    if (isSupabaseAvailable() && supabase) {
+      try {
+        const { data } = await supabase
+          .from('jewelry_items')
+          .select('view_count')
+          .eq('item_code', itemCode)
+          .single();
 
-      await supabase
-        .from('jewelry_items')
-        .update({ view_count: currentViews + 1 })
-        .eq('item_code', itemCode);
-    } catch (e) {
-      // Local tracking fallback
-      const views = parseInt(localStorage.getItem(`view_${itemCode}`) || '0');
-      localStorage.setItem(`view_${itemCode}`, String(views + 1));
+        const currentViews = data?.view_count || 0;
+        await supabase
+          .from('jewelry_items')
+          .update({ view_count: currentViews + 1 })
+          .eq('item_code', itemCode);
+      } catch (e) {
+        // localStorage already updated above
+      }
     }
   };
 
@@ -196,7 +210,6 @@ const PublicGalleryPage: React.FC = () => {
       return;
     }
 
-    // Save contact request
     const requests = JSON.parse(localStorage.getItem('contact_requests') || '[]');
     requests.push({
       id: Date.now(),
@@ -209,7 +222,9 @@ const PublicGalleryPage: React.FC = () => {
     });
     localStorage.setItem('contact_requests', JSON.stringify(requests));
 
-    // Open WhatsApp
+    const whatsappClicks = parseInt(localStorage.getItem('whatsapp_clicks') || '0');
+    localStorage.setItem('whatsapp_clicks', String(whatsappClicks + 1));
+
     const phone = '218912133218';
     const message = encodeURIComponent(`مرحباً، أريد الاستفسار عن: ${selectedItem?.model_name} (${selectedItem?.item_code})`);
     window.open(`https://wa.me/${phone}?text=${message}`, '_blank');
@@ -220,6 +235,9 @@ const PublicGalleryPage: React.FC = () => {
   };
 
   const shareItem = (item: JewelryItem) => {
+    const shareClicks = parseInt(localStorage.getItem('share_clicks') || '0');
+    localStorage.setItem('share_clicks', String(shareClicks + 1));
+
     if (navigator.share) {
       navigator.share({
         title: `${item.model_name} - مجوهرات الحمروني`,
@@ -261,7 +279,10 @@ const PublicGalleryPage: React.FC = () => {
               <Phone className="w-5 h-5" />
               <span className="font-medium">اتصل بنا</span>
             </a>
-            <a href="https://wa.me/218912133218" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 bg-green-500 hover:bg-green-600 px-4 py-2 rounded-xl text-white transition-all">
+            <a href="https://wa.me/218912133218" onClick={() => {
+              const whatsappClicks = parseInt(localStorage.getItem('whatsapp_clicks') || '0');
+              localStorage.setItem('whatsapp_clicks', String(whatsappClicks + 1));
+            }} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 bg-green-500 hover:bg-green-600 px-4 py-2 rounded-xl text-white transition-all">
               <WhatsAppIcon className="w-5 h-5" />
               <span className="font-medium">واتساب</span>
             </a>
@@ -675,6 +696,10 @@ const PublicGalleryPage: React.FC = () => {
                   href={`https://wa.me/218912133218?text=${encodeURIComponent(`مرحباً، أريد الاستفسار عن: ${selectedItem.model_name} (${selectedItem.item_code})`)}`}
                   target="_blank"
                   rel="noopener noreferrer"
+                  onClick={() => {
+                    const whatsappClicks = parseInt(localStorage.getItem('whatsapp_clicks') || '0');
+                    localStorage.setItem('whatsapp_clicks', String(whatsappClicks + 1));
+                  }}
                   className="flex-1 bg-green-500 hover:bg-green-600 text-white font-bold py-4 rounded-xl flex items-center justify-center gap-2 transition-all"
                 >
                   <WhatsAppIcon className="w-5 h-5" /> واتساب
@@ -761,7 +786,10 @@ const PublicGalleryPage: React.FC = () => {
               <Phone className="w-5 h-5" />
               <span>+218912133218</span>
             </a>
-            <a href="https://wa.me/218912133218" className="text-gray-400 hover:text-green-500 flex items-center gap-2">
+            <a href="https://wa.me/218912133218" onClick={() => {
+              const whatsappClicks = parseInt(localStorage.getItem('whatsapp_clicks') || '0');
+              localStorage.setItem('whatsapp_clicks', String(whatsappClicks + 1));
+            }} className="text-gray-400 hover:text-green-500 flex items-center gap-2">
               <WhatsAppIcon className="w-5 h-5" />
               <span>واتساب</span>
             </a>

@@ -65,7 +65,7 @@ const DraftInvoicesPage: React.FC = () => {
   // Convert draft to final invoice
   const handleConvertDraft = (draft: DraftInvoice) => {
     if (confirm(`هل تريد تحويل الفاتورة المبدئية ${draft.draftNumber} إلى فاتورة نهائية؟`)) {
-      const result = convertDraftToFinal(draft.draftNumber);
+      const result = convertDraftToFinal(draft.id);
       if (result.success) {
         alert('تم تحويل الفاتورة بنجاح');
         // Navigate to sales page with the invoice
@@ -236,7 +236,7 @@ const DraftInvoicesPage: React.FC = () => {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-center text-gray-400 text-sm">
-                      {new Date(draft.createdAt).toLocaleDateString('ar-LY')}
+                      {new Date(draft.createdAt).toLocaleDateString('en-CA')}
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-center gap-2">
@@ -401,7 +401,7 @@ const DraftInvoicesPage: React.FC = () => {
                 </div>
                 <div className="bg-gray-700/50 rounded-lg p-3">
                   <div className="text-gray-400 text-xs">تاريخ الإنشاء</div>
-                  <div className="text-white">{new Date(selectedDraft.createdAt).toLocaleDateString('ar-LY')}</div>
+                  <div className="text-white">{new Date(selectedDraft.createdAt).toLocaleDateString('en-CA')}</div>
                 </div>
                 <div className="bg-gray-700/50 rounded-lg p-3">
                   <div className="text-gray-400 text-xs">الحالة</div>

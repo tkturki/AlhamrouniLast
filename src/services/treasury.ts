@@ -60,6 +60,30 @@ export interface TaxRecord {
   notes?: string;
 }
 
+export interface BudgetItem {
+  id: string;
+  accountCode: string;
+  month: string;           // YYYY-MM
+  planned: number;         // المخطط
+  actual: number;          // الفعلي
+  notes?: string;
+}
+
+export interface MonthlyClosing {
+  id: string;
+  month: string;           // YYYY-MM
+  totalRevenue: number;
+  totalExpenses: number;
+  netProfit: number;
+  totalAssets: number;
+  totalLiabilities: number;
+  totalEquity: number;
+  accountBalances: Account[];
+  closedBy: string;
+  closedAt: string;
+  notes?: string;
+}
+
 // Default Chart of Accounts (Libyan jewelry business)
 const defaultAccounts: Account[] = [
   // الأصول
@@ -94,6 +118,8 @@ const ACCOUNTS_KEY = 'treasury_accounts';
 const JOURNAL_KEY = 'treasury_journal';
 const CLOSING_KEY = 'daily_closings';
 const TAX_KEY = 'tax_records';
+const BUDGET_KEY = 'treasury_budgets';
+const MONTHLY_CLOSING_KEY = 'treasury_monthly_closings';
 
 // Initialize accounts
 const initAccounts = (): Account[] => {
@@ -164,15 +190,29 @@ export const addJournalEntry = (
 export const recordSale = (
   amount: number,
   customerName: string,
-  invoiceNumber: string
+  invoiceNumber: string,
+  paymentMethod: string = 'cash'
 ): void => {
   const user = authApi.getCurrentUser();
+  
+  // Determine account based on payment method
+  let accountCode = '1001'; // الصندوق (نقدي)
+  let accountLabel = 'نقدي';
+  
+  if (paymentMethod === 'card') {
+    accountCode = '1002'; // البنك
+    accountLabel = 'بطاقة مصرفية';
+  } else if (paymentMethod === 'transfer') {
+    accountCode = '1002'; // البنك
+    accountLabel = 'حوالة بنكية';
+  }
+
   addJournalEntry({
     date: new Date().toISOString().split('T')[0],
-    description: `بيع نقدي - ${customerName} - فاتورة ${invoiceNumber}`,
+    description: `بيع ${accountLabel} - ${customerName} - فاتورة ${invoiceNumber}`,
     debit: amount,
     credit: 0,
-    accountCode: '1001', // الصندوق
+    accountCode: accountCode,
     entryType: 'sale',
     reference: invoiceNumber,
     createdBy: user?.name || 'نظام',
@@ -356,14 +396,14 @@ export const printDailyReport = (date: string): void => {
         .accounts-table th { background: #555; color: white; padding: 10px; text-align: right; }
         .accounts-table td { border-bottom: 1px solid #ddd; padding: 8px; }
         .footer { text-align: center; padding-top: 20px; border-top: 2px solid #333; margin-top: 20px; }
-        @media print { body { padding: 0; } }
+        @media print { body { padding: 0; } *, *::before, *::after { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; } }
       </style>
     </head>
     <body>
       <div class="header">
         <h1>تقرير يومي - الخزينة</h1>
         <p>مجوهرات الحمروني</p>
-        <p style="margin-top: 10px;">التاريخ: ${new Date(date).toLocaleDateString('ar-LY')}</p>
+        <p style="margin-top: 10px;">التاريخ: ${new Date(date).toLocaleDateString('en-CA')}</p>
       </div>
 
       <div class="summary">
@@ -450,4 +490,325 @@ export const getTreasuryBalance = (): number => {
   const accounts = getAccounts();
   const cashAccount = accounts.find(a => a.code === '1001');
   return cashAccount?.balance || 0;
+};
+
+// Print journal entries for a specific date (قيودات)
+export const printJournalEntries = (date: string): void => {
+  const entries = getJournalEntries(date);
+  const totalDebit = entries.filter(e => e.debit > 0).reduce((sum, e) => sum + e.debit, 0);
+  const totalCredit = entries.filter(e => e.credit > 0).reduce((sum, e) => sum + e.credit, 0);
+
+  const entryTypeLabels: Record<string, string> = {
+    sale: 'بيع', purchase: 'شراء', expense: 'مصروف', deposit: 'إيداع',
+    withdrawal: 'سحب', return: 'مرتجع', salary: 'راتب', tax: 'ضريبة', transfer: 'تحويل',
+  };
+
+  const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Tahoma, sans-serif; direction: rtl; padding: 20px; }
+        .header { text-align: center; border-bottom: 3px double #333; padding-bottom: 15px; margin-bottom: 20px; }
+        .header h1 { font-size: 22px; margin-bottom: 5px; }
+        .header p { color: #666; font-size: 14px; }
+        .summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 20px; }
+        .summary-box { background: #f5f5f5; padding: 12px; border-radius: 8px; text-align: center; }
+        .summary-box label { display: block; color: #666; font-size: 12px; margin-bottom: 5px; }
+        .summary-box span { font-size: 18px; font-weight: bold; color: #333; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+        th { background: #333; color: white; padding: 10px; text-align: right; font-size: 13px; }
+        td { border-bottom: 1px solid #ddd; padding: 8px 10px; font-size: 13px; }
+        tr:nth-child(even) { background: #f9f9f9; }
+        .footer { text-align: center; padding-top: 20px; border-top: 2px solid #333; margin-top: 20px; font-size: 12px; }
+        @media print { body { padding: 0; } *, *::before, *::after { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; } }
+      </style>
+    </head>
+    <body>
+      <div class="header">
+        <h1>سجل القيودات</h1>
+        <p>مجوهرات الحمروني</p>
+        <p style="margin-top: 8px;">التاريخ: ${new Date(date).toLocaleDateString('en-CA')}</p>
+      </div>
+
+      <div class="summary">
+        <div class="summary-box">
+          <label>عدد القيودات</label>
+          <span>${entries.length}</span>
+        </div>
+        <div class="summary-box">
+          <label>إجمالي المدين</label>
+          <span>${totalDebit.toLocaleString()} د.ل</span>
+        </div>
+        <div class="summary-box">
+          <label>إجمالي الدائن</label>
+          <span>${totalCredit.toLocaleString()} د.ل</span>
+        </div>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>الوصف</th>
+            <th>نوع القيد</th>
+            <th>الحساب</th>
+            <th>مدين</th>
+            <th>دائن</th>
+            <th>بواسطة</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${entries.map((e, i) => `
+            <tr>
+              <td>${i + 1}</td>
+              <td>${e.description}</td>
+              <td>${entryTypeLabels[e.entryType] || e.entryType}</td>
+              <td>${e.accountCode}</td>
+              <td>${e.debit > 0 ? e.debit.toLocaleString() + ' د.ل' : '-'}</td>
+              <td>${e.credit > 0 ? e.credit.toLocaleString() + ' د.ل' : '-'}</td>
+              <td>${e.createdBy || '-'}</td>
+            </tr>
+          `).join('')}
+          ${entries.length === 0 ? '<tr><td colspan="7" style="text-align:center; padding:20px; color:#999;">لا توجد قيودات في هذا التاريخ</td></tr>' : ''}
+        </tbody>
+        <tfoot>
+          <tr style="font-weight: bold; background: #eee;">
+            <td colspan="4" style="text-align: left;">الإجمالي</td>
+            <td>${totalDebit.toLocaleString()} د.ل</td>
+            <td>${totalCredit.toLocaleString()} د.ل</td>
+            <td></td>
+          </tr>
+        </tfoot>
+      </table>
+
+      <div class="footer">
+        <p>تم طباعة التقرير: ${new Date().toLocaleString('ar-LY')}</p>
+        <p style="margin-top: 8px;">توقيع المسؤول: _______________</p>
+      </div>
+    </body>
+    </html>
+  `;
+
+  const printWindow = window.open('', '_blank');
+  if (!printWindow) {
+    alert('يرجى السماح بالنوافذ المنبثقة للطباعة');
+    return;
+  }
+  printWindow.document.write(html);
+  printWindow.document.close();
+  printWindow.onload = () => printWindow.print();
+};
+
+// =================== BUDGET SYSTEM ===================
+export const getBudgets = (month?: string): BudgetItem[] => {
+  const data = localStorage.getItem(BUDGET_KEY);
+  const budgets = data ? JSON.parse(data) : [];
+  if (month) return budgets.filter((b: BudgetItem) => b.month === month);
+  return budgets;
+};
+
+export const saveBudget = (budget: Omit<BudgetItem, 'id' | 'actual'>): BudgetItem => {
+  const budgets = getBudgets();
+  const existing = budgets.find(b => b.accountCode === budget.accountCode && b.month === budget.month);
+  if (existing) {
+    existing.planned = budget.planned;
+    existing.notes = budget.notes;
+    localStorage.setItem(BUDGET_KEY, JSON.stringify(budgets));
+    return existing;
+  }
+  const newBudget: BudgetItem = {
+    ...budget,
+    id: Date.now().toString(),
+    actual: 0,
+  };
+  budgets.push(newBudget);
+  localStorage.setItem(BUDGET_KEY, JSON.stringify(budgets));
+  return newBudget;
+};
+
+export const updateBudgetActuals = (month: string): void => {
+  const budgets = getBudgets(month);
+  const entries = getJournalEntries();
+  const monthEntries = entries.filter(e => e.date.startsWith(month));
+
+  for (const budget of budgets) {
+    const accountEntries = monthEntries.filter(e => e.accountCode === budget.accountCode);
+    const account = getAccountByCode(budget.accountCode);
+    if (account) {
+      if (account.type === 'revenue') {
+        budget.actual = accountEntries.reduce((sum, e) => sum + e.credit, 0);
+      } else if (account.type === 'expense') {
+        budget.actual = accountEntries.reduce((sum, e) => sum + e.debit, 0);
+      } else {
+        budget.actual = accountEntries.reduce((sum, e) => sum + e.debit - e.credit, 0);
+      }
+    }
+  }
+  localStorage.setItem(BUDGET_KEY, JSON.stringify(budgets));
+};
+
+// =================== MONTHLY CLOSING ===================
+export const performMonthlyClosing = (month: string, notes?: string): MonthlyClosing => {
+  const existing = getMonthlyClosing(month);
+  if (existing) throw new Error('تم إجراء الإغلاق الشهري لهذا الشهر مسبقاً');
+
+  const user = authApi.getCurrentUser();
+  const accounts = getAccounts();
+
+  const totalRevenue = accounts.filter(a => a.type === 'revenue').reduce((sum, a) => sum + a.balance, 0);
+  const totalExpenses = accounts.filter(a => a.type === 'expense').reduce((sum, a) => sum + a.balance, 0);
+  const netProfit = totalRevenue - totalExpenses;
+  const totalAssets = accounts.filter(a => a.type === 'asset').reduce((sum, a) => sum + a.balance, 0);
+  const totalLiabilities = accounts.filter(a => a.type === 'liability').reduce((sum, a) => sum + a.balance, 0);
+  const totalEquity = accounts.filter(a => a.type === 'equity').reduce((sum, a) => sum + a.balance, 0) + netProfit;
+
+  const closing: MonthlyClosing = {
+    id: Date.now().toString(),
+    month,
+    totalRevenue,
+    totalExpenses,
+    netProfit,
+    totalAssets,
+    totalLiabilities,
+    totalEquity,
+    accountBalances: [...accounts],
+    closedBy: user?.name || 'نظام',
+    closedAt: new Date().toISOString(),
+    notes,
+  };
+
+  const closings = JSON.parse(localStorage.getItem(MONTHLY_CLOSING_KEY) || '[]');
+  closings.unshift(closing);
+  localStorage.setItem(MONTHLY_CLOSING_KEY, JSON.stringify(closings.slice(0, 60)));
+  return closing;
+};
+
+export const getMonthlyClosing = (month: string): MonthlyClosing | null => {
+  const closings = JSON.parse(localStorage.getItem(MONTHLY_CLOSING_KEY) || '[]');
+  return closings.find((c: MonthlyClosing) => c.month === month) || null;
+};
+
+export const getMonthlyClosings = (): MonthlyClosing[] => {
+  return JSON.parse(localStorage.getItem(MONTHLY_CLOSING_KEY) || '[]');
+};
+
+// =================== P&L REPORT ===================
+export const generateProfitLoss = (month: string): {
+  revenue: { code: string; name: string; amount: number }[];
+  expenses: { code: string; name: string; amount: number }[];
+  totalRevenue: number;
+  totalExpenses: number;
+  netProfit: number;
+} => {
+  const accounts = getAccounts();
+  const entries = getJournalEntries();
+  const monthEntries = entries.filter(e => e.date.startsWith(month));
+
+  const revenue = accounts.filter(a => a.type === 'revenue').map(a => ({
+    code: a.code,
+    name: a.name,
+    amount: monthEntries.filter(e => e.accountCode === a.code).reduce((sum, e) => sum + e.credit, 0),
+  })).filter(r => r.amount > 0);
+
+  const expenses = accounts.filter(a => a.type === 'expense').map(a => ({
+    code: a.code,
+    name: a.name,
+    amount: monthEntries.filter(e => e.accountCode === a.code).reduce((sum, e) => sum + e.debit, 0),
+  })).filter(r => r.amount > 0);
+
+  const totalRevenue = revenue.reduce((sum, r) => sum + r.amount, 0);
+  const totalExpenses = expenses.reduce((sum, r) => sum + r.amount, 0);
+
+  return { revenue, expenses, totalRevenue, totalExpenses, netProfit: totalRevenue - totalExpenses };
+};
+
+// =================== BALANCE SHEET ===================
+export const generateBalanceSheet = (): {
+  assets: { code: string; name: string; balance: number }[];
+  liabilities: { code: string; name: string; balance: number }[];
+  equity: { code: string; name: string; balance: number }[];
+  totalAssets: number;
+  totalLiabilities: number;
+  totalEquity: number;
+} => {
+  const accounts = getAccounts();
+
+  const assets = accounts.filter(a => a.type === 'asset' && a.balance !== 0).map(a => ({ code: a.code, name: a.name, balance: a.balance }));
+  const liabilities = accounts.filter(a => a.type === 'liability' && a.balance !== 0).map(a => ({ code: a.code, name: a.name, balance: a.balance }));
+  const equity = accounts.filter(a => a.type === 'equity' && a.balance !== 0).map(a => ({ code: a.code, name: a.name, balance: a.balance }));
+
+  return {
+    assets,
+    liabilities,
+    equity,
+    totalAssets: assets.reduce((sum, a) => sum + a.balance, 0),
+    totalLiabilities: liabilities.reduce((sum, a) => sum + a.balance, 0),
+    totalEquity: equity.reduce((sum, a) => sum + a.balance, 0),
+  };
+};
+
+// =================== MONTHLY SUMMARY ===================
+export const generateMonthlySummary = (month: string): {
+  totalSales: number;
+  totalReturns: number;
+  totalRevenue: number;
+  totalExpenses: number;
+  netProfit: number;
+  transactionCount: number;
+  salesCount: number;
+  returnCount: number;
+  expenseCount: number;
+} => {
+  const entries = getJournalEntries();
+  const monthEntries = entries.filter(e => e.date.startsWith(month));
+
+  const salesEntries = monthEntries.filter(e => e.entryType === 'sale');
+  const returnEntries = monthEntries.filter(e => e.entryType === 'return');
+  const totalSales = salesEntries.filter(e => e.debit > 0).reduce((sum, e) => sum + e.debit, 0);
+  const totalReturns = returnEntries.filter(e => e.credit > 0).reduce((sum, e) => sum + e.credit, 0);
+  const totalRevenue = monthEntries.filter(e => e.accountCode === '3001' || e.accountCode === '3002').reduce((sum, e) => sum + e.credit, 0);
+  const totalExpenses = monthEntries.filter(e => e.entryType === 'expense').reduce((sum, e) => sum + e.debit, 0);
+
+  return {
+    totalSales,
+    totalReturns,
+    totalRevenue,
+    totalExpenses,
+    netProfit: totalRevenue - totalExpenses,
+    transactionCount: monthEntries.length,
+    salesCount: salesEntries.length,
+    returnCount: returnEntries.length,
+    expenseCount: monthEntries.filter(e => e.entryType === 'expense').length,
+  };
+};
+
+// =================== RECORD MANUFACTURING SALE ===================
+export const recordManufacturingSale = (
+  amount: number,
+  customerName: string,
+  invoiceNumber: string
+): void => {
+  const user = authApi.getCurrentUser();
+  addJournalEntry({
+    date: new Date().toISOString().split('T')[0],
+    description: `مصنعية - ${customerName} - فاتورة ${invoiceNumber}`,
+    debit: amount,
+    credit: 0,
+    accountCode: '1001',
+    entryType: 'sale',
+    reference: invoiceNumber,
+    createdBy: user?.name || 'نظام',
+  });
+  addJournalEntry({
+    date: new Date().toISOString().split('T')[0],
+    description: `إيرادات مصنعية - ${customerName} - فاتورة ${invoiceNumber}`,
+    debit: 0,
+    credit: amount,
+    accountCode: '3001',
+    entryType: 'sale',
+    reference: invoiceNumber,
+    createdBy: user?.name || 'نظام',
+  });
 };
