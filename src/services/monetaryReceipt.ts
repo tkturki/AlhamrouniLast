@@ -1,5 +1,6 @@
 import { getSystemSettings } from "./settings";
-import { numberToArabicWords } from "../utils/arabic";
+import { numberToArabicWords, numberToArabicWeightWords } from "../utils/arabic";
+import { buildReceiptTitle, getReceiptStampText } from "../utils/receiptText";
 
 export interface MonetaryReceiptItem {
   serial: number;
@@ -7,6 +8,8 @@ export interface MonetaryReceiptItem {
   amount: number;
   notes?: string;
   item_type?: string;
+  metal_type?: string;
+  karat?: string;
   weight?: number;
   count?: number;
   price_per_gram?: number;
@@ -40,11 +43,23 @@ export const generateMonetaryReceiptHTML = (data: MonetaryReceiptData): string =
 
   const hasItemDetails = items.some(it => it.weight || it.count || it.price_per_gram);
 
-  const statement = items.find(it => it.description?.trim())?.description?.trim() || '';
-  const receiptTitle = statement ? `ايصال استلام ${statement}` : 'ايصال استلام';
+  const rawStatement = items.find(it => it.description?.trim())?.description?.trim() || '';
+  const statement = rawStatement.replace(/^(تم\s+)?(استلام|تسليم)\s*/, '').trim();
+  // العنوان الديناميكي: إيصال + العملية (استلام/تسليم/شراء/تصنيع) + نوع المعدن
+  const receiptTitle = buildReceiptTitle(items, statement, data.notes || '');
+  // الختم الأحمر يظهر فقط عند الاستلام أو التسليم، ولا يظهر عند الشراء أو التصنيع
+  const stampText = getReceiptStampText(items, data.notes || '');
   const hasMetal = items.some(it => it.item_type === 'metal');
   const hasMonetary = items.some(it => it.item_type === 'monetary');
-  const computedTotal = items.filter(it => it.item_type !== 'metal').reduce((sum, it) => sum + (it.amount || 0), 0);
+  // منع تكرار القيمة: البند المالي والوزن المبين بنفس المبلغ هما العملية نفسها فتُحسب مرة واحدة
+  const countedAmounts = new Set<number>();
+  const computedTotal = items.filter(it => it.item_type !== 'metal').reduce((sum, it) => {
+    const amount = Number(it.amount || 0);
+    const key = Math.round(amount * 100);
+    if (amount > 0 && countedAmounts.has(key)) return sum;
+    countedAmounts.add(key);
+    return sum + amount;
+  }, 0);
   const displayTotal = hasItemDetails ? computedTotal : total;
 
   const rows = items.map(it => {
@@ -54,6 +69,7 @@ export const generateMonetaryReceiptHTML = (data: MonetaryReceiptData): string =
       return `<tr>
         <td style="text-align:center;font-weight:bold">${it.serial}</td>
         <td style="text-align:right;font-weight:bold">${it.description}</td>
+        <td style="text-align:center;font-weight:bold">${isMetal ? (it.karat || '-') : '-'}</td>
         <td style="text-align:center">${it.count || '-'}</td>
         <td style="text-align:center;font-weight:bold;color:#b45309">${it.weight ? it.weight.toFixed(2) : '-'}</td>
         <td style="text-align:center">${priceGram}</td>
@@ -63,14 +79,14 @@ export const generateMonetaryReceiptHTML = (data: MonetaryReceiptData): string =
     }
     return `<tr>
       <td style="text-align:center;font-weight:bold">${it.serial}</td>
-      <td style="text-align:right;font-weight:bold" colspan="3">${it.description}</td>
+      <td style="text-align:right;font-weight:bold">${it.description}</td>
       <td style="text-align:center;font-weight:900;font-size:15px;color:#b45309">${it.amount.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})} د.ل</td>
-      <td style="text-align:center" colspan="2">${it.notes || ''}</td>
+      <td style="text-align:center">${it.notes || ''}</td>
     </tr>`;
   }).join('');
 
   const dataRowCount = items.length;
-  const colCount = hasItemDetails ? 7 : 4;
+  const colCount = hasItemDetails ? 8 : 4;
   const closingRowHtml = `<tr><td colspan="${colCount}" style="border:none;padding:0;height:6px;background:linear-gradient(to bottom right,transparent calc(50% - 1px),#722f37 calc(50% - 1px),#722f37 calc(50% + 1px),transparent calc(50% + 1px))"></td></tr>`;
 
   return `<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8">
@@ -130,7 +146,7 @@ table.data tr:nth-child(even){background:#f5f5f5}
 </div>
 
 <div class="msg-box">
-  تم استلام المُبيّن أدناه من زبوننا الكريم (${data.customer_name || '─────'}) بناءً على إيصال استلام رقم (${data.invoice_number}) مع جزيل الشكر والأمتنان
+  تم استلام المُبيّن أدناه من زبوننا الكريم (${data.customer_name || '─────'})
 </div>
 
 <div class="sline"></div>
@@ -139,10 +155,11 @@ table.data tr:nth-child(even){background:#f5f5f5}
   <thead><tr>
     ${hasItemDetails ? `
     <th style="width:5%">رقم</th>
-    <th style="width:30%">البيان</th>
-    <th style="width:8%">العدد</th>
-    <th style="width:10%">الوزن (جـرام)</th>
-    <th style="width:12%">سعر الجرام</th>
+    <th style="width:25%">البيان</th>
+    <th style="width:8%">العيار</th>
+    <th style="width:7%">العدد</th>
+    <th style="width:9%">الوزن (جـرام)</th>
+    <th style="width:11%">سعر الجرام</th>
     <th style="width:20%">القيمة الإجمالية</th>
     <th style="width:15%">ملاحظات</th>
     ` : `
@@ -174,9 +191,9 @@ ${hasMetal && !hasMonetary ? `
 ` : ''}
 
 <div style="position:relative;margin:10px 0">
-  <div style="text-align:center;margin-bottom:8px">
-    <div style="display:inline-block;border:4px solid #dc2626;color:#dc2626;font-size:22px;font-weight:900;padding:8px 28px;border-radius:10px;transform:rotate(-10deg);opacity:0.8">تم الاستلام</div>
-  </div>
+  ${stampText ? `<div style="text-align:center;margin-bottom:8px">
+    <div style="display:inline-block;border:4px solid #dc2626;color:#dc2626;font-size:22px;font-weight:900;padding:8px 28px;border-radius:10px;transform:rotate(-10deg);opacity:0.8">${stampText}</div>
+  </div>` : ''}
   <table style="width:100%;border-collapse:collapse">
     <tr>
       <td style="width:25%;text-align:center;vertical-align:bottom;padding:4px">
@@ -216,13 +233,55 @@ ${hasMetal && !hasMonetary ? `
 </body></html>`;
 };
 
-export const printMonetaryReceipt = (data: MonetaryReceiptData): void => {
+const imageToBase64 = (url: string): Promise<string> => new Promise((resolve) => {
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  img.onload = () => {
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width;
+      canvas.height = img.height;
+      canvas.getContext('2d')?.drawImage(img, 0, 0);
+      resolve(canvas.toDataURL('image/png'));
+    } catch {
+      resolve(url);
+    }
+  };
+  img.onerror = () => resolve(url);
+  img.src = url;
+});
+
+// تضمين صور الختم والتوقيع داخل الصفحة لضمان ظهورها في الطباعة
+const preloadReceiptImages = async (html: string): Promise<string> => {
+  const base = window.location.origin;
+  const images: Array<[RegExp, string]> = [
+    [/src="([^"]*\/logo1\.png[^"]*)"/, `${base}/logo1.png`],
+    [/src="([^"]*\/R_H1\.png[^"]*)"/, `${base}/R_H1.png`],
+    [/src="([^"]*\/stamp\.png[^"]*)"/, `${base}/stamp.png`],
+    [/src="([^"]*\/signature\.png[^"]*)"/, `${base}/signature.png`],
+  ];
+  let result = html;
+  for (const [pattern, url] of images) {
+    if (pattern.test(result)) {
+      const base64 = await imageToBase64(url);
+      result = result.replace(pattern, `src="${base64}"`);
+    }
+  }
+  return result;
+};
+
+export const printMonetaryReceipt = async (data: MonetaryReceiptData): Promise<void> => {
   const html = generateMonetaryReceiptHTML(data);
   const baseUrl = window.location.origin;
-  const processed = html.replace(/src="\/(logo1|R_H1|stamp|signature)\./g, `src="${baseUrl}/$1.`);
+  let processed = html.replace(/src="\/(logo1|R_H1|stamp|signature)\./g, `src="${baseUrl}/$1.`);
+  processed = await preloadReceiptImages(processed);
   const blob = new Blob([processed], { type: 'text/html;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const w = window.open(url, "_blank");
   if (!w) return;
-  w.onload = () => { URL.revokeObjectURL(url); w.focus(); w.print(); };
+  w.onload = () => {
+    URL.revokeObjectURL(url);
+    w.focus();
+    setTimeout(() => w.print(), 400);
+  };
 };

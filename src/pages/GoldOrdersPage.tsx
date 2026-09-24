@@ -9,6 +9,7 @@ import {
   getReceipts, saveReceipt, getNextReceiptNumber, getReceiptByNumber, searchReceipts, deleteReceipt, updateReceipt,
   getInvoices, saveInvoice, updateInvoice, getNextInvoiceNumber, getInvoicesByReceipt, deleteInvoice, batchDeleteInvoices, restoreGoldOrdersFromServer,
   getOrderRegularInvoices, saveOrderRegularInvoice,
+  createInvoiceLinkKey, findRelatedRegularInvoice,
 } from '../services/goldOrdersStorage';
 
 const METAL_TYPES = ['ذهب صافي', 'ذهب سبائك', 'ذهب مستعمل', 'ذهب كسر', 'فضة'];
@@ -30,6 +31,7 @@ const ReceiptTab: React.FC = () => {
   // Form
   const [fItemType, setFItemType] = useState<'metal' | 'monetary'>('metal');
   const [fMetalType, setFMetalType] = useState('ذهب صافي');
+  const [fKarat, setFKarat] = useState('21');
   const [fDescription, setFDescription] = useState('');
   const [fCountStr, setFCountStr] = useState('');
   const [fWeightStr, setFWeightStr] = useState('');
@@ -41,8 +43,9 @@ const ReceiptTab: React.FC = () => {
   const [fExchangeRateStr, setFExchangeRateStr] = useState('');
   const [fMonetaryValueStr, setFMonetaryValueStr] = useState('');
   const [fPurchaseByGram, setFPurchaseByGram] = useState(false);
+  const [fIncludeInTotal, setFIncludeInTotal] = useState(true);
   const [arabonStr, setArabonStr] = useState('');
-  const [recVisibleCols, setRecVisibleCols] = useState<string[]>(['serial', 'metal_type', 'description', 'count', 'weight', 'stone_weight', 'gem_weight', 'value', 'notes']);
+  const [recVisibleCols, setRecVisibleCols] = useState<string[]>(['serial', 'metal_type', 'karat', 'description', 'count', 'weight', 'stone_weight', 'gem_weight', 'price_per_gram', 'value', 'notes']);
 
   const fCount = parseInt(fCountStr) || 0;
   const fWeight = parseFloat(fWeightStr) || 0;
@@ -61,6 +64,7 @@ const ReceiptTab: React.FC = () => {
   const resetForm = () => {
     setFItemType('metal');
     setFMetalType('ذهب صافي');
+    setFKarat('21');
     setFDescription('');
     setFCountStr('');
     setFWeightStr('');
@@ -71,8 +75,9 @@ const ReceiptTab: React.FC = () => {
     setFCurrency('LYD');
     setFExchangeRateStr('');
     setFMonetaryValueStr('');
-    setFPurchaseByGram(false);
-    setEditingIndex(null);
+     setFPurchaseByGram(false);
+     setFIncludeInTotal(true);
+     setEditingIndex(null);
   };
 
   const handleAddItem = () => {
@@ -82,6 +87,7 @@ const ReceiptTab: React.FC = () => {
     const newItem = {
       item_type: fItemType,
       metal_type: fItemType === 'metal' ? fMetalType : 'قيمة مالية',
+      karat: fItemType === 'metal' ? fKarat : '',
       description: fDescription,
       count: fCount,
       weight: fItemType === 'metal' ? fWeight : fPurchaseWeight,
@@ -94,7 +100,8 @@ const ReceiptTab: React.FC = () => {
       exchange_rate: fItemType === 'monetary' && fCurrency !== 'LYD' ? fExchangeRate : undefined,
       monetary_value: fItemType === 'monetary' ? fMonetaryValue : undefined,
       total_lyd: fItemType === 'monetary' ? fTotalLyd : undefined,
-      purchase_mode: fItemType === 'monetary' && fPurchaseByGram ? 'gold_by_gram' : undefined,
+       purchase_mode: fItemType === 'monetary' && fPurchaseByGram ? 'gold_by_gram' : undefined,
+       include_in_total: fIncludeInTotal,
     };
     if (editingIndex !== null) {
       const updated = [...items];
@@ -110,6 +117,7 @@ const ReceiptTab: React.FC = () => {
     const item = items[index];
     setFItemType(item.item_type || 'metal');
     setFMetalType(item.metal_type);
+    setFKarat(item.karat || '21');
     setFDescription(item.description);
     setFCountStr(item.count ? item.count.toString() : '');
     setFWeightStr(item.weight.toString());
@@ -120,8 +128,9 @@ const ReceiptTab: React.FC = () => {
     setFCurrency(item.currency || 'LYD');
     setFExchangeRateStr(item.exchange_rate?.toString() || '');
     setFMonetaryValueStr(item.monetary_value?.toString() || '');
-    setFPurchaseByGram(item.purchase_mode === 'gold_by_gram');
-    setEditingIndex(index);
+     setFPurchaseByGram(item.purchase_mode === 'gold_by_gram');
+     setFIncludeInTotal(item.include_in_total !== false);
+     setEditingIndex(index);
   };
 
   const handleDeleteItem = (index: number) => {
@@ -131,7 +140,28 @@ const ReceiptTab: React.FC = () => {
 
   const totalWeight = items.reduce((sum, it) => sum + it.weight, 0);
   const totalCount = items.reduce((sum, it) => sum + it.count, 0);
-  const totalValue = items.reduce((sum, it) => sum + (it.item_type === 'monetary' ? (it.total_lyd || it.monetary_value || 0) : it.metal_value), 0);
+  const itemAmount = (it: any) => it.item_type === 'monetary'
+    ? (Number(it.total_lyd ?? it.monetary_value ?? 0) || 0)
+    : (Number(it.metal_value ?? 0) || 0);
+  // البند المالي والذهب المشترى به العملية نفسها: يظهران في التفاصيل معًا لكن يُحتسب المبلغ مرة واحدة
+  const matchedMonetaryIndexes = new Set<number>();
+  const totalValue = items.reduce((sum, it, index) => {
+    if (it.include_in_total === false) return sum;
+    if (it.item_type === 'monetary') return sum + itemAmount(it);
+
+    const duplicateIndex = items.findIndex((other: any, otherIndex: number) =>
+      otherIndex !== index &&
+      other.item_type === 'monetary' &&
+      other.include_in_total !== false &&
+      Math.abs(itemAmount(other) - itemAmount(it)) < 0.01
+    );
+
+    if (duplicateIndex === -1 || matchedMonetaryIndexes.has(duplicateIndex)) {
+      return sum + itemAmount(it);
+    }
+    matchedMonetaryIndexes.add(duplicateIndex);
+    return sum;
+  }, 0);
 
   const handleSaveAndPrint = () => {
     if (items.length === 0 || !customerName.trim()) return;
@@ -148,6 +178,7 @@ const ReceiptTab: React.FC = () => {
         serial: i + 1,
         item_type: it.item_type || 'metal',
         metal_type: it.metal_type,
+        karat: it.karat || '',
         description: it.description,
         count: it.count,
         weight: it.weight,
@@ -159,8 +190,9 @@ const ReceiptTab: React.FC = () => {
         currency: it.currency,
         exchange_rate: it.exchange_rate,
         monetary_value: it.monetary_value,
-        total_lyd: it.total_lyd,
-        purchase_mode: it.purchase_mode,
+         total_lyd: it.total_lyd,
+         purchase_mode: it.purchase_mode,
+         include_in_total: it.include_in_total !== false,
       })),
       total_weight: totalWeight,
       total_count: totalCount,
@@ -189,6 +221,7 @@ const ReceiptTab: React.FC = () => {
       exchange_rate: item.exchange_rate,
       monetary_value: item.monetary_value,
       total_lyd: item.total_lyd,
+      include_in_total: item.include_in_total !== false,
       description: item.description,
     }));
     printReceipt({
@@ -242,7 +275,7 @@ const ReceiptTab: React.FC = () => {
     if (hasMonetary && !hasMetal) {
       setRecVisibleCols(['serial', 'description', 'currency', 'monetary_value', 'total_lyd']);
     } else {
-      setRecVisibleCols(['serial', 'metal_type', 'description', 'count', 'weight', 'value']);
+      setRecVisibleCols(['serial', 'metal_type', 'karat', 'description', 'count', 'weight', 'value']);
     }
     // Scroll to form
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -260,6 +293,7 @@ const ReceiptTab: React.FC = () => {
         serial: i + 1,
         item_type: it.item_type || 'metal',
         metal_type: it.metal_type,
+        karat: it.karat || '',
         description: it.description,
         count: it.count,
         weight: it.weight,
@@ -272,6 +306,7 @@ const ReceiptTab: React.FC = () => {
         exchange_rate: it.exchange_rate,
         monetary_value: it.monetary_value,
         total_lyd: it.total_lyd,
+        include_in_total: it.include_in_total !== false,
       })),
       total_weight: totalWeight,
       total_count: totalCount,
@@ -295,6 +330,7 @@ const ReceiptTab: React.FC = () => {
       item_name: item.description || item.metal_type,
       item_type: item.item_type || 'metal',
       metal_type: item.metal_type,
+      karat: item.karat || '',
       weight: item.weight,
       stone_weight: item.stone_weight || 0,
       gem_weight: item.gem_weight || 0,
@@ -307,8 +343,15 @@ const ReceiptTab: React.FC = () => {
       exchange_rate: item.exchange_rate,
       monetary_value: item.monetary_value,
       total_lyd: item.total_lyd,
+      include_in_total: item.include_in_total !== false,
       description: item.description,
     }));
+    // أعمدة الطباعة: تتبع نوع البنود مع إظهار عمود الملاحظات إن وُجدت ملاحظات
+    const hasMetalItem = (r.items || []).some(it => (it.item_type || 'metal') === 'metal');
+    const hasNotes = (r.items || []).some(it => (it.notes || '').trim() !== '');
+    const baseCols = r.items.some(it => it.item_type === 'monetary') && !hasMetalItem
+      ? ['serial', 'description', 'currency', 'monetary_value', 'total_lyd']
+      : ['serial', 'metal_type', 'karat', 'description', 'count', 'weight', 'stone_weight', 'gem_weight', 'price_per_gram', 'value'];
     printReceipt({
       receipt_number: r.receipt_number,
       customer_name: r.customer_name,
@@ -322,6 +365,7 @@ const ReceiptTab: React.FC = () => {
       page_size: 'A4',
       orientation: 'landscape',
       total_count: r.total_count,
+      visibleCols: hasNotes ? [...baseCols, 'notes'] : baseCols,
     });
   };
 
@@ -425,6 +469,19 @@ const ReceiptTab: React.FC = () => {
               </select>
             </div>
             <div>
+              <label className="block text-sm text-gray-400 mb-1">العيار</label>
+              <select value={fKarat} onChange={(e) => setFKarat(e.target.value)} className="w-full bg-gray-700 border border-yellow-500/50 rounded px-3 py-2 text-white">
+                <option value="24">24</option>
+                <option value="22">22</option>
+                <option value="21">21</option>
+                <option value="18">18</option>
+                <option value="14">14</option>
+                <option value="12">12</option>
+                <option value="9">9</option>
+                <option value="">بدون عيار</option>
+              </select>
+            </div>
+            <div>
               <label className="block text-sm text-gray-400 mb-1">البيان</label>
               <input type="text" value={fDescription} onChange={(e) => setFDescription(e.target.value)} placeholder="وصف المعدن" className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" />
             </div>
@@ -505,9 +562,17 @@ const ReceiptTab: React.FC = () => {
               <label className="block text-sm text-gray-400 mb-1">الإجمالي (د.ل)</label>
               <input type="text" value={formatNumber(fTotalLyd)} readOnly className="w-full bg-gray-600 border border-gray-600 rounded px-3 py-2 text-white cursor-not-allowed font-bold text-green-400 text-lg" />
             </div>
+            <div className="md:col-span-3">
+              <label className="block text-sm text-gray-400 mb-1">ملاحظات</label>
+              <input type="text" value={fNotes} onChange={(e) => setFNotes(e.target.value)} placeholder="إضافة ملاحظات خاصة بالبند المالي" className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" />
+            </div>
           </div>
         )}
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-center gap-4">
+          <label className="flex items-center gap-2 bg-gray-700/50 border border-gray-600 rounded px-3 py-2 text-sm text-gray-300 cursor-pointer">
+            <input type="checkbox" checked={fIncludeInTotal} onChange={(e) => setFIncludeInTotal(e.target.checked)} className="w-4 h-4 accent-yellow-500" />
+            يُحتسب هذا البند في إجمالي الإيصال
+          </label>
           <button onClick={handleAddItem} className="flex items-center gap-2 bg-yellow-500 hover:bg-yellow-600 text-gray-900 font-bold px-4 py-2 rounded">
             <Plus className="w-4 h-4" /> {editingIndex !== null ? 'تحديث' : 'إضافة'}
           </button>
@@ -528,6 +593,7 @@ const ReceiptTab: React.FC = () => {
                 <tr>
                   <th className="px-3 py-3 text-center text-sm text-gray-400">#</th>
                   <th className="px-3 py-3 text-center text-sm text-gray-400">النوع</th>
+                  <th className="px-3 py-3 text-center text-sm text-gray-400">العيار</th>
                   <th className="px-3 py-3 text-right text-sm text-gray-400">البيان</th>
                   <th className="px-3 py-3 text-center text-sm text-gray-400">العدد</th>
                   <th className="px-3 py-3 text-center text-sm text-gray-400">وزن الذهب الصافي</th>
@@ -548,6 +614,7 @@ const ReceiptTab: React.FC = () => {
                         {item.item_type === 'monetary' ? '💰 مالية' : item.metal_type}
                       </span>
                     </td>
+                    <td className="px-3 py-3 text-center text-gray-300 font-bold">{item.item_type === 'monetary' ? '-' : (item.karat || '-')}</td>
                     <td className="px-3 py-3 text-white">{item.description || '---'}</td>
                     <td className="px-3 py-3 text-center text-gray-300">{item.count || '-'}</td>
                     <td className="px-3 py-3 text-center font-bold text-yellow-400">{item.weight > 0 ? item.weight.toFixed(2) : '-'}</td>
@@ -578,7 +645,7 @@ const ReceiptTab: React.FC = () => {
               </tbody>
               <tfoot className="bg-gray-900/50 border-t border-gray-700">
                 <tr>
-                  <td colSpan={3} className="px-3 py-3 text-yellow-400 font-bold text-center">الإجماليات</td>
+                  <td colSpan={4} className="px-3 py-3 text-yellow-400 font-bold text-center">الإجماليات</td>
                   <td className="px-3 py-3 text-center font-bold text-yellow-400">{totalCount}</td>
                   <td className="px-3 py-3 text-center font-bold text-yellow-400">{totalWeight.toFixed(2)}</td>
                   <td className="px-3 py-3 text-center font-bold text-yellow-400">{items.reduce((s, i) => s + (i.stone_weight || 0), 0).toFixed(2)}</td>
@@ -636,6 +703,7 @@ const ReceiptTab: React.FC = () => {
               {[
                 { id: 'serial', label: '#' },
                 { id: 'metal_type', label: 'نوع المعدن' },
+                { id: 'karat', label: 'العيار' },
                 { id: 'description', label: 'البيان' },
                 { id: 'count', label: 'العدد' },
                 { id: 'weight', label: 'وزن الذهب الصافي' },
@@ -733,6 +801,8 @@ const ReceiptTab: React.FC = () => {
                                 serial: i + 1,
                                 description: it.description || it.metal_type || '',
                                 item_type: it.item_type || 'metal',
+                                metal_type: it.metal_type || '',
+                                karat: it.karat || '',
                                 weight: it.weight || 0,
                                 count: it.count || 0,
                                 price_per_gram: it.price_per_gram || 0,
@@ -779,8 +849,9 @@ const InvoiceTab: React.FC = () => {
   const [editingInvoiceId, setEditingInvoiceId] = useState<string | null>(null);
   const [selectedInvoiceIds, setSelectedInvoiceIds] = useState<string[]>([]);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  // الأعمدة الأساسية للفاتورة الطلبية: رقم، البيان، العيار، سعر الجرام، القيمة الإجمالية، ملاحظات
   const [invVisibleCols, setInvVisibleCols] = useState<string[]>([
-    'num','pieces','desc','karat','pureW','withStones','withGems','stoneW','gemW','totalW','stoneCount','gemCount','goldPrice','workPrice','total','notes'
+    'num','desc','karat','goldPrice','total','notes'
   ]);
   const fixedSumCols = ['pureW', 'withStones', 'withGems', 'stoneW', 'gemW', 'totalW', 'total'];
   const [invSumCols, setInvSumCols] = useState<string[]>(fixedSumCols);
@@ -2079,7 +2150,8 @@ const RegularOrderInvoiceTab: React.FC = () => {
   const [headerInvoiceLabel, setHeaderInvoiceLabel] = useState('رقم الفاتورة المرتبطة');
   const [headerDateLabel, setHeaderDateLabel] = useState('التاريخ');
   const [invoiceNumber, setInvoiceNumber] = useState('');
-  const [visibleColumns, setVisibleColumns] = useState(REGULAR_ORDER_COLUMNS.map(column => column.key));
+  // الأعمدة الأساسية: رقم، البيان، العيار، سعر الجرام، القيمة الإجمالية، ملاحظات
+  const [visibleColumns, setVisibleColumns] = useState<string[]>(['num', 'desc', 'karat', 'goldPrice', 'total', 'notes']);
   const [columnLabels, setColumnLabels] = useState<Record<string, string>>(
     Object.fromEntries(REGULAR_ORDER_COLUMNS.map(column => [column.key, column.label]))
   );
@@ -2292,7 +2364,7 @@ const GoldOrdersPage: React.FC = () => {
               : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white'
           }`}
         >
-          <Receipt className="w-5 h-5" /> إيصال استلام
+          <Receipt className="w-5 h-5" /> وصل استلام
         </button>
         <button
           onClick={() => setActiveTab('invoice')}

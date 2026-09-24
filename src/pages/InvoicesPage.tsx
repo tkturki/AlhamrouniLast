@@ -127,7 +127,7 @@ const InvoicesPage: React.FC = () => {
         invoice.customer_name?.toLowerCase().includes(searchLower) ||
         invoice.seller_name?.toLowerCase().includes(searchLower) ||
         relatedText.toLowerCase().includes(searchLower) ||
-        invoice.invoice_link_key?.toLowerCase().includes(searchLower)
+        (invoice as any).invoice_link_key?.toLowerCase().includes(searchLower)
       );
     });
     setFilteredInvoices(filtered);
@@ -854,6 +854,8 @@ const InvoicesPage: React.FC = () => {
                             serial: i + 1,
                             description: it.description || it.metal_type || '',
                             item_type: it.item_type || 'metal',
+                            metal_type: it.metal_type || '',
+                            karat: it.karat || '',
                             weight: it.weight || 0,
                             count: it.count || 0,
                             price_per_gram: it.price_per_gram || 0,

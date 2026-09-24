@@ -70,7 +70,7 @@ const getPrintConfig = (config?: InvoicePrintConfig): InvoicePrintConfig => ({
   ...DEFAULT_INVOICE_PRINT_CONFIG,
   ...config,
   columns: config?.columns?.length
-    ? Array.from(new Set(config.columns.map(column => column === 'quantity' ? 'total_weight' : column).filter(column => column !== 'code'))) as InvoiceColumnId[]
+    ? Array.from(new Set(config.columns.map(column => (column as string) === 'quantity' ? 'total_weight' : column).filter(column => column !== 'code'))) as InvoiceColumnId[]
     : DEFAULT_INVOICE_PRINT_CONFIG.columns,
   columnLabels: { ...DEFAULT_INVOICE_PRINT_CONFIG.columnLabels, ...(config?.columnLabels || {}) },
 });

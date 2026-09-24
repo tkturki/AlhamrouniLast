@@ -2,8 +2,10 @@
 
 export interface StoredReceiptItem {
   serial: number;
+  include_in_total?: boolean;
   item_type: 'metal' | 'monetary';
   metal_type: string;
+  karat?: string;
   description: string;
   count: number;
   weight: number;

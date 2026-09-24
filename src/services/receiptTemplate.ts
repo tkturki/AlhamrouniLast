@@ -1,12 +1,14 @@
 // Delivery Receipt Template (وصل استلام)
 import { getSystemSettings } from "./settings";
 import { numberToArabicWords, numberToArabicWeightWords } from "../utils/arabic";
+import { buildReceiptTitle, getReceiptStampText } from "../utils/receiptText";
 
 export interface ReceiptItem {
   serial: number;
   item_name: string;
   item_type?: 'metal' | 'monetary';
   metal_type: string;
+  karat?: string;
   weight: number;
   stone_weight?: number;
   gem_weight?: number;
@@ -21,7 +23,42 @@ export interface ReceiptItem {
   total_lyd?: number;
   purchase_mode?: 'gold_by_gram';
   description?: string;
+  include_in_total?: boolean;
 }
+
+const receiptItemAmount = (item: ReceiptItem): number =>
+  item.item_type === 'monetary'
+    ? Number(item.total_lyd ?? item.monetary_value ?? 0)
+    : Number(item.market_value ?? 0);
+
+export const calculateReceiptTotal = (items: ReceiptItem[], fallback: number = 0): number => {
+  const list = items || [];
+  const matchedMonetary = new Set<number>();
+  let total = 0;
+
+  list.forEach((item, index) => {
+    if (item.include_in_total === false) return;
+    if (item.item_type === 'monetary') {
+      total += receiptItemAmount(item);
+      return;
+    }
+
+    const duplicateIndex = list.findIndex((other, otherIndex) =>
+      otherIndex !== index &&
+      other.item_type === 'monetary' &&
+      other.include_in_total !== false &&
+      Math.abs(receiptItemAmount(other) - receiptItemAmount(item)) < 0.01
+    );
+
+    if (duplicateIndex === -1 || matchedMonetary.has(duplicateIndex)) {
+      total += receiptItemAmount(item);
+    } else {
+      matchedMonetary.add(duplicateIndex);
+    }
+  });
+
+  return list.length > 0 ? total : fallback;
+};
 
 export interface ReceiptData {
   receipt_number: string;
@@ -43,6 +80,7 @@ export interface ReceiptData {
 
 export const generateReceiptHTML = (data: ReceiptData): string => {
   const settings = getSystemSettings();
+  const receiptTotal = calculateReceiptTotal(data.items, data.total_value || 0);
   const date = new Date(data.created_at);
   const day = date.getDate().toString().padStart(2, "0");
   const month = (date.getMonth() + 1).toString().padStart(2, "0");
@@ -54,13 +92,18 @@ export const generateReceiptHTML = (data: ReceiptData): string => {
   const allMonetary = data.items?.every(it => it.item_type === 'monetary' && it.purchase_mode !== 'gold_by_gram') ?? false;
   const hasSilver = (data.items || []).some(it => (it.metal_type || '').includes('فضة'));
 
+  // العنوان الديناميكي والختم الأحمر حسب نوع العملية ونوع المعدن
+  const receiptTitle = buildReceiptTitle(data.items || [], allMonetary ? 'قيمة مالية' : '');
+  const stampText = getReceiptStampText(data.items || []);
+
   const visibleCols = data.visibleCols || (allMonetary
     ? ['serial', 'description', 'currency', 'monetary_value', 'total_lyd']
-    : ['serial', 'metal_type', 'description', 'count', 'weight', 'stone_weight', 'gem_weight', 'value', 'notes']);
+    : ['serial', 'metal_type', 'karat', 'description', 'count', 'weight', 'stone_weight', 'gem_weight', 'price_per_gram', 'value', 'notes']);
 
   const allCols = [
     { id: 'serial', label: '#', width: '5%' },
     { id: 'metal_type', label: allMonetary ? 'نوع الاستلام' : 'نوع المعدن', width: '10%' },
+    { id: 'karat', label: 'العيار', width: '6%' },
     { id: 'description', label: 'البيان', width: '18%' },
     { id: 'count', label: 'العدد', width: '7%' },
     { id: 'weight', label: 'وزن الذهب الصافي', width: '10%' },
@@ -85,12 +128,13 @@ export const generateReceiptHTML = (data: ReceiptData): string => {
       switch(col.id) {
         case 'serial': return `<td style="text-align:center">${it.serial}</td>`;
         case 'metal_type': return `<td style="text-align:center">${isGoldPurchase ? 'شراء ذهب' : isMonetary ? '💰 مالية' : (it.metal_type || '-')}</td>`;
+        case 'karat': return `<td style="text-align:center;font-weight:bold">${isMonetary && !isGoldPurchase ? '-' : (it.karat || '-')}</td>`;
         case 'description': return `<td style="text-align:right;font-weight:bold">${it.item_name || it.description || '----'}</td>`;
         case 'count': return `<td style="text-align:center">${isMonetary && !isGoldPurchase ? '-' : (it.quantity || '-')}</td>`;
         case 'weight': return `<td style="text-align:center;font-weight:bold;color:#b45309">${isMonetary && !isGoldPurchase ? '-' : (it.weight || 0).toFixed(2)}</td>`;
         case 'stone_weight': return `<td style="text-align:center">${(it.stone_weight || 0).toFixed(2)}</td>`;
         case 'gem_weight': return `<td style="text-align:center">${(it.gem_weight || 0).toFixed(2)}</td>`;
-        case 'price_per_gram': return `<td style="text-align:center">${isMonetary ? '-' : (it.price_per_gram || 0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}</td>`;
+        case 'price_per_gram': return `<td style="text-align:center">${isMonetary && !isGoldPurchase ? '-' : (it.price_per_gram || 0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}</td>`;
         case 'value': return `<td style="text-align:center;font-weight:bold;color:#b45309">${isMonetary ? (it.monetary_value||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})+' '+curSym : (it.market_value||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})+' د.ل'}</td>`;
         case 'currency': return `<td style="text-align:center">${isMonetary ? curName : '-'}</td>`;
         case 'monetary_value': return `<td style="text-align:center;font-weight:bold">${(it.monetary_value||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})} ${curSym}</td>`;
@@ -103,19 +147,19 @@ export const generateReceiptHTML = (data: ReceiptData): string => {
   }).join("");
 
   const totalCells = cols.map(col => {
-    if (col.id === 'serial' || col.id === 'metal_type' || col.id === 'currency') return '<td style="background:#e5e7eb"></td>';
-    if (col.id === 'description') return `<td style="text-align:center;font-weight:bold;font-size:14px;background:#e5e7eb">الإجمالي:</td>`;
+    if (col.id === 'serial' || col.id === 'metal_type' || col.id === 'karat' || col.id === 'currency') return '<td style="background:#e5e7eb"></td>';
+    if (col.id === 'description') return `<td style="text-align:center;font-weight:bold;font-size:14px;background:#e5e7eb">المجموع:</td>`;
     if (col.id === 'count') return `<td style="text-align:center;font-weight:900;font-size:16px;color:#b45309;background:#fef3c7">${allMonetary ? '-' : (data.total_count||'-')}</td>`;
     if (col.id === 'weight') return `<td style="text-align:center;font-weight:900;font-size:16px;color:#b45309;background:#fef3c7">${allMonetary ? '-' : (data.total_weight||0).toFixed(2)}</td>`;
     if (col.id === 'price_per_gram') return '<td style="background:#e5e7eb"></td>';
-    if (col.id === 'value') return `<td style="text-align:center;font-weight:900;font-size:16px;color:#b45309;background:#fef3c7">${allMonetary ? '-' : (data.total_value||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})+' د.ل'}</td>`;
-    if (col.id === 'monetary_value') return `<td style="text-align:center;font-weight:900;font-size:16px;color:#b45309;background:#fef3c7">${allMonetary ? (data.total_value||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</td>`;
-    if (col.id === 'total_lyd') return `<td style="text-align:center;font-weight:900;font-size:16px;color:#16a34a;background:#d1fae5">${(data.total_value||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})} د.ل</td>`;
+    if (col.id === 'value') return `<td style="text-align:center;font-weight:900;font-size:16px;color:#b45309;background:#fef3c7"></td>`;
+    if (col.id === 'monetary_value') return `<td style="text-align:center;font-weight:900;font-size:16px;color:#b45309;background:#fef3c7"></td>`;
+    if (col.id === 'total_lyd') return `<td style="text-align:center;font-weight:900;font-size:16px;color:#16a34a;background:#d1fae5"></td>`;
     return '<td></td>';
   }).join("");
 
   return `<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8">
-<title>وصل استلام رقم ${data.receipt_number}</title>
+<title>${receiptTitle} رقم ${data.receipt_number}</title>
 <style>
 @page{size:${pageSize} ${orientation};margin:3mm 4mm}
 *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;box-sizing:border-box}
@@ -160,7 +204,7 @@ table.data tr{page-break-inside:avoid}
   </div>
 </div>
 
-<div class="receipt-title">${allMonetary ? 'استلام قيمة' : 'وصل استلام'}</div>
+<div class="receipt-title">${receiptTitle}</div>
 
 <div class="cust-info">
   <div class="cust-box">
@@ -183,15 +227,17 @@ table.data tr{page-break-inside:avoid}
 </table>
 
 <div class="total-box">
-  <div class="total-row"><span>الإجمالي:</span><span style="font-weight:bold;color:#b45309">${(data.total_value||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})} د.ل</span></div>
+  <div class="total-row"><span>الإجمالي:</span><span style="font-weight:bold;color:#b45309">${receiptTotal.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})} د.ل</span></div>
   ${data.arabon !== undefined && data.arabon > 0 ? `<div class="total-row"><span>العربون المدفوع:</span><span style="font-weight:bold;color:#16a34a">- ${(data.arabon||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})} د.ل</span></div>` : ''}
   ${data.arabon !== undefined && data.arabon > 0 ? `<div class="total-row total-grand"><span>المتبقي:</span><span>${(data.remaining||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})} د.ل</span></div>` : ''}
 </div>
 
 <div class="words-box">
-  <b>القيمة الإجمالية بالحروف:</b> ${numberToArabicWords(data.total_value || 0)} دينار ليبي فقط لا غير
+  <b>القيمة الإجمالية بالحروف:</b> ${numberToArabicWords(receiptTotal)} دينار ليبي فقط لا غير
 </div>
 ${(data.items || []).some(it => it.item_type === 'metal') ? `<div class="words-box"><b>مجموع الأوزان بالحروف:</b> ${numberToArabicWeightWords((data.items || []).filter(it => it.item_type === 'metal').reduce((sum, it) => sum + (it.weight || 0), 0))}</div>` : ''}
+
+${stampText ? `<div style="text-align:center;margin:10px 0 4px"><div style="display:inline-block;border:4px solid #dc2626;color:#dc2626;font-size:22px;font-weight:900;padding:8px 28px;border-radius:10px;transform:rotate(-10deg);opacity:0.8">${stampText}</div></div>` : ''}
 
 <div class="srow">
   <div class="sblk">
@@ -212,7 +258,8 @@ ${(data.items || []).some(it => it.item_type === 'metal') ? `<div class="words-b
     <div><b>المحل:</b> ${settings.storeName || 'مجوهرات الحمروني'}</div>
     <div><b>المدير:</b> ${settings.managerName || ''}</div>
   </div>
-  <div style="text-align:center"><b>رقم الإيصال: ${data.receipt_number}</b></div>
+  <div style="text-align:center"><b>رقم الوصل
+  : ${data.receipt_number}</b></div>
   <div style="text-align:left">
     <div><b>العنوان:</b> ${settings.storeAddress || ''}</div>
     <div><b>الهاتف:</b> ${settings.storePhone || ''}</div>

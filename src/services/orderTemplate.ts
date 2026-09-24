@@ -87,9 +87,22 @@ export const generateOrderInvoiceHTML = (data: OrderData, visibleCols?: string[]
   const tMetalVal = (data.items || []).reduce((s, it) => s + ((it.gold_price || 0) * (it.weight_pure || 0)), 0);
   const tStonesCount = (data.items || []).reduce((s, it) => s + (it.stone_count || 0), 0);
   const tGemsCount = (data.items || []).reduce((s, it) => s + (it.gem_count || 0), 0);
-  const total = data.invoice_total ?? tWorkVal;
+  //const total = data.invoice_total ?? tWorkVal;
+  
+ // const words = total > 0 ? numberToArabicWords(total) : "";
+ // const weightWords = numberToArabicWeightWords(totalCombinedWeight);
+
+ // تصحيح المجموع المالي ومنع الجمع المزدوج للبند المقابل للشراء
+  const uniqueTotal = (data.items || []).reduce((sum: number, item: any) => {
+    const isConversion = item.description && item.description.includes('الوزن المبين');
+    if (isConversion) {
+      return sum;
+    }
+    return sum + Number(item.total || item.amount || item.invoice_total || 0);
+  }, 0);
+
+  const total = uniqueTotal > 0 ? uniqueTotal : (data.invoice_total ?? tWorkVal);
   const words = total > 0 ? numberToArabicWords(total) : "";
-  const weightWords = numberToArabicWeightWords(totalCombinedWeight);
   const tPieces = data.total_pieces || (data.items || []).reduce((s, it) => s + (it.pieces_count || 0), 0);
   const totalWeight = (data.items || []).reduce((s, it) => s + (it.weight_pure || 0), 0);
   const totalStonesWeight = (data.items || []).reduce((s, it) => s + (Number(it.stone_weight) || 0), 0);
@@ -122,6 +135,10 @@ export const generateOrderInvoiceHTML = (data: OrderData, visibleCols?: string[]
   const cols = (visibleCols
     ? allCols.filter(c => visibleCols.includes(c.key) || c.key === 'total')
     : allCols).map(c => ({ ...c, label: data.column_labels?.[c.key] || c.label }));
+  // إعادة توزيع عرض الأعمدة ليملأ الجدول بالكامل بغض النظر عن عدد الأعمدة الظاهرة
+  const widthTotal = cols.reduce((s, c) => s + (parseFloat(c.w) || 0), 0) || 100;
+  cols.forEach(c => { c.w = `${(((parseFloat(c.w) || 0) / widthTotal) * 100).toFixed(2)}%`; });
+
   const fixedSumCols = ['pureW', 'withStones', 'withGems', 'stoneW', 'gemW', 'totalW', 'total'];
   const sumColumns = data.sum_columns || fixedSumCols;
   const colSpan = cols.length;
@@ -274,7 +291,7 @@ table.main td{padding:2px 1px;font-size:7px;line-height:1.05;word-break:break-wo
   </tbody>
 </table>
 
-<div class="remaining-bar"><span><span style="color:#7c6c4a">إجمالي الوزن بالحروف: </span><span style="color:#333">${weightWords}</span></span></div>
+<div class="remaining-bar"><span><span style="color:#7c6c4a">إجمالي الوزن بالحروف: </span><span style="color:#333">${numberToArabicWeightWords(totalWeight)}</span></span></div>
 
   <div class="footer-section">
   <div class="breakdown-box">

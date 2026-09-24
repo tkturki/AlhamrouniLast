@@ -25,7 +25,7 @@ const InvoicePage: React.FC = () => {
 
   const columnOptions: { id: InvoiceColumnId; label: string }[] = [
     { id: 'serial', label: '#' }, { id: 'item', label: 'الصنف' }, { id: 'code', label: 'الكود' },
-    { id: 'karat', label: 'العيار' }, { id: 'weight', label: 'الوزن' }, { id: 'quantity', label: 'العدد' },
+    { id: 'karat', label: 'العيار' }, { id: 'weight', label: 'الوزن' }, { id: 'total_weight', label: 'العدد' },
     { id: 'unit_price', label: 'السعر' }, { id: 'total', label: 'الإجمالي' }, { id: 'notes', label: 'ملاحظات' },
   ];
 

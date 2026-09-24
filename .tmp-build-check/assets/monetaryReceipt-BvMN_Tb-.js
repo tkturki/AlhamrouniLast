@@ -1,17 +1,18 @@
-import{g as _,n as y}from"./index-DxtLgaTK.js";const z=e=>{var b,h;const a=_(),r=new Date(e.payment_date),l=r.getDate().toString().padStart(2,"0"),p=(r.getMonth()+1).toString().padStart(2,"0"),d=r.getFullYear(),i=e.total_amount||0;i>0&&y(i);const o=e.items&&e.items.length>0?e.items:[{serial:1,description:`استلام قيمة الفاتورة رقم ${e.invoice_number}`,amount:i,notes:e.notes||""}],s=o.some(t=>t.weight||t.count||t.price_per_gram),c=((h=(b=o.find(t=>{var n;return(n=t.description)==null?void 0:n.trim()}))==null?void 0:b.description)==null?void 0:h.trim())||"",g=c?`ايصال استلام ${c}`:"ايصال استلام",v=o.some(t=>t.item_type==="metal"),x=o.some(t=>t.item_type==="monetary"),u=o.filter(t=>t.item_type!=="metal").reduce((t,n)=>t+(n.amount||0),0),m=s?u:i,w=o.map(t=>{const n=t.price_per_gram===1?"0.00":t.price_per_gram?t.price_per_gram.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2}):"-",f=t.item_type==="metal";return s?`<tr>
+import{g as S,n as w,d as R,e as T,h as D}from"./index-BWU-1gDh.js";const F=e=>{var f,y;const o=S(),i=new Date(e.payment_date),n=i.getDate().toString().padStart(2,"0"),a=(i.getMonth()+1).toString().padStart(2,"0"),p=i.getFullYear(),r=e.total_amount||0;r>0&&w(r);const s=e.items&&e.items.length>0?e.items:[{serial:1,description:`استلام قيمة الفاتورة رقم ${e.invoice_number}`,amount:r,notes:e.notes||""}],c=s.some(t=>t.weight||t.count||t.price_per_gram),v=(((y=(f=s.find(t=>{var d;return(d=t.description)==null?void 0:d.trim()}))==null?void 0:f.description)==null?void 0:y.trim())||"").replace(/^(تم\s+)?(استلام|تسليم)\s*/,"").trim(),g=R(s,v,e.notes||""),m=T(s,e.notes||""),$=s.some(t=>t.item_type==="metal"),x=s.some(t=>t.item_type==="monetary"),h=new Set,_=s.filter(t=>t.item_type!=="metal").reduce((t,d)=>{const l=Number(d.amount||0),u=Math.round(l*100);return l>0&&h.has(u)?t:(h.add(u),t+l)},0),b=c?_:r,z=s.map(t=>{const d=t.price_per_gram===1?"0.00":t.price_per_gram?t.price_per_gram.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2}):"-",l=t.item_type==="metal";return c?`<tr>
         <td style="text-align:center;font-weight:bold">${t.serial}</td>
         <td style="text-align:right;font-weight:bold">${t.description}</td>
+        <td style="text-align:center;font-weight:bold">${l&&t.karat||"-"}</td>
         <td style="text-align:center">${t.count||"-"}</td>
         <td style="text-align:center;font-weight:bold;color:#b45309">${t.weight?t.weight.toFixed(2):"-"}</td>
-        <td style="text-align:center">${n}</td>
-        <td style="text-align:center;font-weight:900;font-size:15px;color:${f?"#999":"#b45309"}">${f?"-":t.amount.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})+" د.ل"}</td>
+        <td style="text-align:center">${d}</td>
+        <td style="text-align:center;font-weight:900;font-size:15px;color:${l?"#999":"#b45309"}">${l?"-":t.amount.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})+" د.ل"}</td>
         <td style="text-align:center">${t.notes||""}</td>
       </tr>`:`<tr>
       <td style="text-align:center;font-weight:bold">${t.serial}</td>
-      <td style="text-align:right;font-weight:bold" colspan="3">${t.description}</td>
+      <td style="text-align:right;font-weight:bold">${t.description}</td>
       <td style="text-align:center;font-weight:900;font-size:15px;color:#b45309">${t.amount.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})} د.ل</td>
-      <td style="text-align:center" colspan="2">${t.notes||""}</td>
-    </tr>`}).join("");o.length;const $=`<tr><td colspan="${s?7:4}" style="border:none;padding:0;height:6px;background:linear-gradient(to bottom right,transparent calc(50% - 1px),#722f37 calc(50% - 1px),#722f37 calc(50% + 1px),transparent calc(50% + 1px))"></td></tr>`;return`<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8">
+      <td style="text-align:center">${t.notes||""}</td>
+    </tr>`}).join("");s.length;const k=`<tr><td colspan="${c?8:4}" style="border:none;padding:0;height:6px;background:linear-gradient(to bottom right,transparent calc(50% - 1px),#722f37 calc(50% - 1px),#722f37 calc(50% + 1px),transparent calc(50% + 1px))"></td></tr>`;return`<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8">
 <title>${g} رقم ${e.receipt_number}</title>
 <style>
 @page{size:A4 landscape;margin:5mm 6mm}
@@ -54,7 +55,7 @@ table.data tr:nth-child(even){background:#f5f5f5}
   <div class="hdr-info">
     <div style="text-align:left"><b>ايصال استلام رقم: </b><span style="color:#dc2626;font-weight:900;font-size:14px;font-family:monospace">${e.receipt_number}</span></div>
     <div style="text-align:left"><b>رقم الفاتورة: </b><span style="color:#16a34a;font-weight:900;font-family:monospace">${e.invoice_number}</span></div>
-    <div style="text-align:left"><b>التاريخ: </b><span style="border-bottom:1px solid #000;padding:0 4px">${d} / ${p} / ${l}</span></div>
+    <div style="text-align:left"><b>التاريخ: </b><span style="border-bottom:1px solid #000;padding:0 4px">${p} / ${a} / ${n}</span></div>
   </div>
 </div>
 
@@ -68,19 +69,20 @@ table.data tr:nth-child(even){background:#f5f5f5}
 </div>
 
 <div class="msg-box">
-  تم استلام المُبيّن أدناه من زبوننا الكريم (${e.customer_name||"─────"}) بناءً على إيصال استلام رقم (${e.invoice_number}) مع جزيل الشكر والأمتنان
+  تم استلام المُبيّن أدناه من زبوننا الكريم (${e.customer_name||"─────"})
 </div>
 
 <div class="sline"></div>
 
 <table class="data">
   <thead><tr>
-    ${s?`
+    ${c?`
     <th style="width:5%">رقم</th>
-    <th style="width:30%">البيان</th>
-    <th style="width:8%">العدد</th>
-    <th style="width:10%">الوزن (جـرام)</th>
-    <th style="width:12%">سعر الجرام</th>
+    <th style="width:25%">البيان</th>
+    <th style="width:8%">العيار</th>
+    <th style="width:7%">العدد</th>
+    <th style="width:9%">الوزن (جـرام)</th>
+    <th style="width:11%">سعر الجرام</th>
     <th style="width:20%">القيمة الإجمالية</th>
     <th style="width:15%">ملاحظات</th>
     `:`
@@ -91,30 +93,30 @@ table.data tr:nth-child(even){background:#f5f5f5}
     `}
   </tr></thead>
   <tbody>
-    ${w}
-    ${$}
+    ${z}
+    ${k}
   </tbody>
 </table>
 
 <div class="total-box">
-  <div class="total-row"><span>الإجمالي:</span><span style="font-weight:900;color:#b45309">${m.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})} د.ل</span></div>
+  <div class="total-row"><span>الإجمالي:</span><span style="font-weight:900;color:#b45309">${b.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})} د.ل</span></div>
 </div>
 
 ${x?`
 <div class="words-box">
-  <b>القيمة الإجمالية بالحروف:</b> ${y(m)} دينار ليبي فقط لا غير
+  <b>القيمة الإجمالية بالحروف:</b> ${w(b)} دينار ليبي فقط لا غير
 </div>
 `:""}
-${v&&!x?`
+${$&&!x?`
 <div class="words-box">
-  <b>مجموع الأوزان بالحروف:</b> ${numberToArabicWeightWords(o.filter(t=>t.item_type==="metal").reduce((t,n)=>t+(n.weight||0),0))}
+  <b>مجموع الأوزان بالحروف:</b> ${D(s.filter(t=>t.item_type==="metal").reduce((t,d)=>t+(d.weight||0),0))}
 </div>
 `:""}
 
 <div style="position:relative;margin:10px 0">
-  <div style="text-align:center;margin-bottom:8px">
-    <div style="display:inline-block;border:4px solid #dc2626;color:#dc2626;font-size:22px;font-weight:900;padding:8px 28px;border-radius:10px;transform:rotate(-10deg);opacity:0.8">تم الاستلام</div>
-  </div>
+  ${m?`<div style="text-align:center;margin-bottom:8px">
+    <div style="display:inline-block;border:4px solid #dc2626;color:#dc2626;font-size:22px;font-weight:900;padding:8px 28px;border-radius:10px;transform:rotate(-10deg);opacity:0.8">${m}</div>
+  </div>`:""}
   <table style="width:100%;border-collapse:collapse">
     <tr>
       <td style="width:25%;text-align:center;vertical-align:bottom;padding:4px">
@@ -141,14 +143,14 @@ ${v&&!x?`
 <div class="fline"></div>
 <div class="frow">
   <div style="text-align:right">
-    <div><b>المحل:</b> ${a.storeName||"مجوهرات الحمروني"}</div>
-    <div><b>المدير:</b> ${a.managerName||""}</div>
+    <div><b>المحل:</b> ${o.storeName||"مجوهرات الحمروني"}</div>
+    <div><b>المدير:</b> ${o.managerName||""}</div>
   </div>
   <div style="text-align:center"><b>رقم الإيصال: ${e.receipt_number}</b></div>
   <div style="text-align:left">
-    <div><b>العنوان:</b> ${a.storeAddress||""}</div>
-    <div><b>الهاتف:</b> ${a.storePhone||""}</div>
+    <div><b>العنوان:</b> ${o.storeAddress||""}</div>
+    <div><b>الهاتف:</b> ${o.storePhone||""}</div>
   </div>
 </div>
 
-</body></html>`},D=e=>{const a=z(e),r=window.location.origin,l=a.replace(/src="\/(logo1|R_H1|stamp|signature)\./g,`src="${r}/$1.`),p=new Blob([l],{type:"text/html;charset=utf-8"}),d=URL.createObjectURL(p),i=window.open(d,"_blank");i&&(i.onload=()=>{URL.revokeObjectURL(d),i.focus(),i.print()})};export{z as generateMonetaryReceiptHTML,D as printMonetaryReceipt};
+</body></html>`},U=e=>new Promise(o=>{const i=new Image;i.crossOrigin="anonymous",i.onload=()=>{var n;try{const a=document.createElement("canvas");a.width=i.width,a.height=i.height,(n=a.getContext("2d"))==null||n.drawImage(i,0,0),o(a.toDataURL("image/png"))}catch{o(e)}},i.onerror=()=>o(e),i.src=e}),L=async e=>{const o=window.location.origin,i=[[/src="([^"]*\/logo1\.png[^"]*)"/,`${o}/logo1.png`],[/src="([^"]*\/R_H1\.png[^"]*)"/,`${o}/R_H1.png`],[/src="([^"]*\/stamp\.png[^"]*)"/,`${o}/stamp.png`],[/src="([^"]*\/signature\.png[^"]*)"/,`${o}/signature.png`]];let n=e;for(const[a,p]of i)if(a.test(n)){const r=await U(p);n=n.replace(a,`src="${r}"`)}return n},H=async e=>{const o=F(e),i=window.location.origin;let n=o.replace(/src="\/(logo1|R_H1|stamp|signature)\./g,`src="${i}/$1.`);n=await L(n);const a=new Blob([n],{type:"text/html;charset=utf-8"}),p=URL.createObjectURL(a),r=window.open(p,"_blank");r&&(r.onload=()=>{URL.revokeObjectURL(p),r.focus(),setTimeout(()=>r.print(),400)})};export{F as generateMonetaryReceiptHTML,H as printMonetaryReceipt};

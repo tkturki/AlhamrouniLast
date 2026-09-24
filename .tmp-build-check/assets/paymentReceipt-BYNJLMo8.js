@@ -1,4 +1,4 @@
-import{g,n as s,f as o}from"./index-DxtLgaTK.js";const b=t=>{const a=g(),i=new Date(t.payment_date),d=i.getDate().toString().padStart(2,"0"),r=(i.getMonth()+1).toString().padStart(2,"0"),n=i.getFullYear(),e=t.remaining??t.total_amount-t.amount_paid,p=e<=0,l=t.amount_paid>0?s(t.amount_paid):"صفر";t.total_amount>0&&s(t.total_amount),e>0&&s(e);const c=t.page_size||"A5",x=t.orientation||"portrait";return`<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8">
+import{g,n as s,f as o}from"./index-BWU-1gDh.js";const b=t=>{const a=g(),i=new Date(t.payment_date),d=i.getDate().toString().padStart(2,"0"),r=(i.getMonth()+1).toString().padStart(2,"0"),n=i.getFullYear(),e=t.remaining??t.total_amount-t.amount_paid,p=e<=0,l=t.amount_paid>0?s(t.amount_paid):"صفر";t.total_amount>0&&s(t.total_amount),e>0&&s(e);const c=t.page_size||"A5",x=t.orientation||"portrait";return`<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8">
 <title>إيصال سداد رقم ${t.receipt_number}</title>
 <style>
 @page{size:${c} ${x};margin:6mm 8mm}
